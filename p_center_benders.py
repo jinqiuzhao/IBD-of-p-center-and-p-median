@@ -69,8 +69,9 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.0):
     opt_sol_time = 0
     MP_relax = MP.relax()
     MP_relax.setParam('OutputFlag', 0)
-    # MP_relax.setParam('PreSolve', 2)
-    # MP_relax.setParam('Method', 3)
+    # MP_relax.setParam('PreSolve', 1)
+    MP_relax.setParam('Method', 1)
+    MP_relax.setParam('PrePasses', 1)
     # MP_relax.setParam('PreCrush', 1)
     # MP_relax.setParam('SimplexPricing', 3)
     # MP.setParam('Method', 3)
@@ -83,13 +84,13 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.0):
     print('\n\n ============================================')
     print(' Benders Decomposition Starts ')
     print('============================================')
-    while Gap > eps:  # not (Gap <= eps):
+    while UB - np.ceil(LB) >= 1 and Gap > eps:  # not (Gap <= eps):
         # print(f'Iter: {benders_iter} iteration facility: {facility}')
         # print(len(facility))
         t_start = time.time()
         # print(f'Iter: {benders_iter} iteration SP time cost: time = {time.time() - t_start}')
         # if LB1 < ub_obj < int_UB: # UB < UB1:  # Gap < 50:   # UB < UB1: # UB1 > low_bound > LB1:  #
-        ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, UB, int_sol=False, MP_int=MP)
+        ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, UB, int_sol=False, MP_int=MP, updata=False)
         # else:
         #     ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, UB, int_sol=False)
         print(constr_num)
@@ -125,6 +126,11 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.0):
             no_change_cnt = 0
         if no_change_cnt >= 2:
             break
+
+        # if Gap < 1.5:
+        #     MP_relax.setParam('OutputFlag', 1)
+        #     MP_relax.tune()
+
     ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, UB, int_sol=False, MP_int=MP)
     print(constr_num)
     int_UB = min(int_UB, int_obj)
@@ -192,6 +198,8 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
     # for mm in cut_set:
     constr_num = 0
     for mm in cut_set:
+        if mm in y_index:
+            continue
         # j = cus_set[mm]
         j = mm
         obj_j = 0
@@ -224,13 +232,33 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
         #     else:
         #         k_th = ub_k_th
         #         k = ub_k
+        if updata:
+            cut_index = np.where(Cut_index[j, :] != 0)[0]
+            for k1 in cut_index:
+                constr = MP.getConstrByName(f"cut_{j}_{k1}")
+                if constr is not None:
+                    if constr.RHS <= lb:
+                        MP.remove(constr)
+                        Cut_index[j, k1] = 0
+                    else:
+                        break
+            for k2 in cut_index[::-1]:
+                constr = MP.getConstrByName(f"cut_{j}_{k2}")
+                if constr is not None:
+                    if constr.RHS > ub:
+                        MP.remove(constr)
+                        Cut_index[j, k2] = 0
+                    else:
+                        break
 
         lhs = LinExpr()
         lhs2 = LinExpr()
         obj_j = c_dis[sort_index[k]]
+        if obj_j <= lb and int_sol:
+            obj = max(obj_j, lb)
+            continue
         for m in range(k):
             obj_j -= (c_dis[sort_index[k]] - c_dis[sort_index[m]]) * y_val[sort_index[m]]
-            a = 0
             if c_dis[sort_index[m]] > ub:  #  and not cbcut:
                 continue
             # if not cbcut:
@@ -260,33 +288,33 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
                 # Cut_index[j, k_th] = 1
                 # print(f"customer {j}: {w} + {lhs} >= {c_dis[sort_index[k]]}")
             elif cbcut:
-                if obj_j > lb:  # obj_j > lb:   #  and obj >= ub:  # obj_j:
-                    MP.cbCut(w + lhs >= c_dis[sort_index[k]])
+                # if obj_j > np.ceil(lb):  # obj_j > lb:   #  and obj >= ub:  # obj_j:
+                MP.cbCut(w + lhs >= c_dis[sort_index[k]])
             # else:  # elif c_dis[sort_index[k]] > lb:
-            elif (obj_j >= obj and (not int_sol)) or (c_dis[sort_index[k]] >= min(ub, obj) and int_sol):
+            elif (obj_j >= max(obj, ub) and (not int_sol)) or (c_dis[sort_index[k]] >= ub and int_sol):
                 MP.addConstr(w + lhs >= c_dis[sort_index[k]], name="cut_"+str(j)+"_"+str(k_th))
                 # print(f"customer {j}: {w} + lhs >= {c_dis[sort_index[k]]}")
                 if int_sol:
                     constr_num += 1
                     Cut_index[j, k_th] = 1
-                    if updata:
-                        cut_index = np.where(Cut_index[j, :] != 0)[0]
-                        for k1 in cut_index:
-                            constr = MP.getConstrByName(f"cut_{j}_{k1}")
-                            if constr is not None:
-                                if constr.RHS <= lb:
-                                    MP.remove(constr)
-                                    Cut_index[j, k1] = 0
-                                else:
-                                    break
-                        for k2 in cut_index[::-1]:
-                            constr = MP.getConstrByName(f"cut_{j}_{k2}")
-                            if constr is not None:
-                                if constr.RHS > ub:
-                                    MP.remove(constr)
-                                    Cut_index[j, k2] = 0
-                                else:
-                                    break
+                    # if updata:
+                    #     cut_index = np.where(Cut_index[j, :] != 0)[0]
+                    #     for k1 in cut_index:
+                    #         constr = MP.getConstrByName(f"cut_{j}_{k1}")
+                    #         if constr is not None:
+                    #             if constr.RHS <= lb:
+                    #                 MP.remove(constr)
+                    #                 Cut_index[j, k1] = 0
+                    #             else:
+                    #                 break
+                    #     for k2 in cut_index[::-1]:
+                    #         constr = MP.getConstrByName(f"cut_{j}_{k2}")
+                    #         if constr is not None:
+                    #             if constr.RHS > ub:
+                    #                 MP.remove(constr)
+                    #                 Cut_index[j, k2] = 0
+                    #             else:
+                    #                 break
 
                 if MP_int is not None and obj_j > np.ceil(lb):   #  and c_dis[sort_index[k]] > lb:  # and (ub-mp_obj)/(mp_obj+0.0001) <= 100:
                     # if k_th > ub_k_th:
@@ -431,15 +459,15 @@ def call_back(model, where):
         LB = max(lb, LB)
         y_val = var[1:]
         w_val = var[0]
-        # if w_val > lb:
-        rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, min(ub, UB), cbcut=True, int_sol=False, updata=False)
-        if int_obj < UB:
-            UB = int_obj
-            y_index = np.argsort(y_val)[-Fac_L: ]
-            y_s = np.zeros(Fac_n)
-            y_s[y_index] = 1
-            solution = np.hstack([np.array(int_obj), y_s]).tolist()
-            model.cbSetSolution(model._vars, solution)
+        if w_val <= lb:
+            rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, min(ub, UB), cbcut=True, int_sol=False, updata=False)
+            if int_obj < UB:
+                UB = int_obj
+                y_index = np.argsort(y_val)[-Fac_L: ]
+                y_s = np.zeros(Fac_n)
+                y_s[y_index] = 1
+                solution = np.hstack([np.array(int_obj), y_s]).tolist()
+                model.cbSetSolution(model._vars, solution)
 
     # Lazycut
     # if where == GRB.callback.MIPSOL:
@@ -527,7 +555,7 @@ def Benders_solve():
         else:
             org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, 0.0)
 
-    y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
+    y_val, z_val, facility, lb = solve_MP(org_model)  # , callback=call_back)
     if lb > LB:
         LB = lb
         org_model.addConstr(org_model.getVarByName(f"w") >= LB)
@@ -665,9 +693,9 @@ if __name__ == "__main__":
 
         """
     data_type = 5
-    # data_sets = range(1, 41)
+    data_sets = range(1, 41)
     # data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
-    data_sets = [50]  # [10, 20, 30, 40, 50]
+    data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
     fac_number = [5]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
 
