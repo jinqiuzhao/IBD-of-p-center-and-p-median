@@ -83,7 +83,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.0):
     print('\n\n ============================================')
     print(' Benders Decomposition Starts ')
     print('============================================')
-    while UB > LB1 and Gap > eps:  # not (Gap <= eps):
+    while Gap > eps:  # not (Gap <= eps):
         # print(f'Iter: {benders_iter} iteration facility: {facility}')
         # print(len(facility))
         t_start = time.time()
@@ -127,8 +127,8 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.0):
             break
     ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, UB, int_sol=False, MP_int=MP)
     print(constr_num)
-    # MP.update()
     int_UB = min(int_UB, int_obj)
+    # MP.update()
     # MP_relax.setParam('OutputFlag', 1)
     # MP_relax.tune()
     print('\n\n ============================================')
@@ -253,7 +253,7 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
         # if obj_j >= obj:
         #     sfd=2
 
-        if k > 0 and Cut_index[j, k_th] == 0 and c_dis[sort_index[k]] >= lb: #  and (obj == obj_j or obj_j > ub):
+        if k > 0 and Cut_index[j, k_th] == 0 and c_dis[sort_index[k]] > np.ceil(lb): #  and (obj == obj_j or obj_j > ub):
             if cb:
                 if c_dis[sort_index[k]] >= ub:
                     MP.cbLazy(w + lhs >= c_dis[sort_index[k]])
@@ -263,7 +263,7 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
                 if obj_j > lb:  # obj_j > lb:   #  and obj >= ub:  # obj_j:
                     MP.cbCut(w + lhs >= c_dis[sort_index[k]])
             # else:  # elif c_dis[sort_index[k]] > lb:
-            elif (obj_j >= obj and (not int_sol)) or (c_dis[sort_index[k]] >= ub and int_sol):
+            elif (obj_j >= obj and (not int_sol)) or (c_dis[sort_index[k]] >= min(ub, obj) and int_sol):
                 MP.addConstr(w + lhs >= c_dis[sort_index[k]], name="cut_"+str(j)+"_"+str(k_th))
                 # print(f"customer {j}: {w} + lhs >= {c_dis[sort_index[k]]}")
                 if int_sol:
@@ -288,7 +288,7 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
                                 else:
                                     break
 
-                if MP_int is not None and lb <= obj_j:   #  and c_dis[sort_index[k]] > lb:  # and (ub-mp_obj)/(mp_obj+0.0001) <= 100:
+                if MP_int is not None and obj_j > np.ceil(lb):   #  and c_dis[sort_index[k]] > lb:  # and (ub-mp_obj)/(mp_obj+0.0001) <= 100:
                     # if k_th > ub_k_th:
                     #     if np.all(Cut_index[j, ub_k_th:k_th]) < 1:
                     #         MP_int.addConstr(w_1 + lhs2 >= c_dis[sort_index[k]], name="cut_"+str(j)+"_"+str(k_th))
@@ -667,7 +667,7 @@ if __name__ == "__main__":
     data_type = 5
     # data_sets = range(1, 41)
     # data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
-    data_sets = [10, 20, 30, 40, 50]
+    data_sets = [50]  # [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
     fac_number = [5]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
 
