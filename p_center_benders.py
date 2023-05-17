@@ -70,7 +70,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.0):
     MP_relax = MP.relax()
     MP_relax.setParam('OutputFlag', 0)
     # MP_relax.setParam('PreSolve', 2)
-    # MP_relax.setParam('Method', 1)
+    # MP_relax.setParam('Method', 3)
     # MP_relax.setParam('PreCrush', 1)
     # MP_relax.setParam('SimplexPricing', 3)
     # MP.setParam('Method', 3)
@@ -125,9 +125,10 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.0):
             no_change_cnt = 0
         if no_change_cnt >= 2:
             break
-    # _, int_obj = add_benders_cut(MP, y_val, LB, int_UB)
-    MP.update()
-    # int_UB = min(int_UB, int_obj)
+    ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, UB, int_sol=False, MP_int=MP)
+    print(constr_num)
+    # MP.update()
+    int_UB = min(int_UB, int_obj)
     # MP_relax.setParam('OutputFlag', 1)
     # MP_relax.tune()
     print('\n\n ============================================')
@@ -137,6 +138,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.0):
     print('Relax_Obj:', UB)
     print('Int_Obj:', int_UB)
     print(f'total time cost: time = {time.time() - t_initial}')
+    print(f"LB:{np.ceil(max(LB, LB1))}, UB:{int_UB}")
     # return UB, int_UB
     return np.ceil(max(LB, LB1)), int_UB
 
@@ -232,7 +234,7 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
             if c_dis[sort_index[m]] > ub:  #  and not cbcut:
                 continue
             # if not cbcut:
-            if c_dis[sort_index[m]] <= lb:
+            if c_dis[sort_index[m]] < lb:
                 a = c_dis[sort_index[min(k, ub_k)]] - np.ceil(lb)
             else:
                 a = c_dis[sort_index[min(k, ub_k)]] - c_dis[sort_index[m]]
@@ -258,7 +260,7 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
                 # Cut_index[j, k_th] = 1
                 # print(f"customer {j}: {w} + {lhs} >= {c_dis[sort_index[k]]}")
             elif cbcut:
-                if c_dis[sort_index[k]] > lb:  # obj_j > lb:   #  and obj >= ub:  # obj_j:
+                if obj_j > lb:  # obj_j > lb:   #  and obj >= ub:  # obj_j:
                     MP.cbCut(w + lhs >= c_dis[sort_index[k]])
             # else:  # elif c_dis[sort_index[k]] > lb:
             elif (obj_j >= obj and (not int_sol)) or (c_dis[sort_index[k]] >= ub and int_sol):
@@ -429,8 +431,8 @@ def call_back(model, where):
         LB = max(lb, LB)
         y_val = var[1:]
         w_val = var[0]
-        # if w_val > UB:
-        rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cbcut=True, int_sol=False, updata=False)
+        # if w_val > lb:
+        rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, min(ub, UB), cbcut=True, int_sol=False, updata=False)
         if int_obj < UB:
             UB = int_obj
             y_index = np.argsort(y_val)[-Fac_L: ]
@@ -494,19 +496,19 @@ def Benders_solve():
     UB, UB1, f_set = get_UB2(Dis_m, Fac_L)
     obj = np.max(np.min(Dis_m[:, list(f_set)], axis=1))
     UB = min(UB, obj)
-    LB = UB1/2
+    LB = np.ceil(UB1/2)
     print(LB, UB)
     LB, UB = Benders_Decomposition(org_model, UB, LB)
-    org_model.addConstr(org_model.getVarByName(f"w") >= np.ceil(LB))
+    org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     org_model.update()
     # LB = 0
     # UB = 100000
 
-    org_model.Params.PoolGap = 0.001
+    org_model.Params.PoolGap = 0.01
     # org_model.setParam('TimeLimit', 100)
     # org_model.Params.PoolSolutions = 5
     # org_model.Params.timeLimit = 600
-    # org_model.setParam('PreSolve', 2)
+    org_model.setParam('PreSolve', 2)
     org_model.setParam('OutputFlag', 0)
     # org_model.setParam('LazyConstraints', 1)
     # org_model.setParam('MIPFocus', 2)
@@ -528,7 +530,7 @@ def Benders_solve():
     y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
     if lb > LB:
         LB = lb
-        org_model.addConstr(org_model.getVarByName(f"w") >= np.ceil(LB))
+        org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     # LB = max(LB, lb)
     for m in range(0, org_model.SolCount):
         org_model.Params.SolutionNumber = m
@@ -553,7 +555,7 @@ def Benders_solve():
         print(' %8.4f ' % Gap, end='%')
         print(f' current time cost: time = {time.time() - t_initial}')
         print()
-        y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
+        y_val, z_val, facility, lb = solve_MP(org_model)  # , callback=call_back)
         # LB = max(LB, lb)
         if lb > LB:
             LB = lb
@@ -662,10 +664,10 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 1
-    data_sets = range(1, 41)
+    data_type = 5
+    # data_sets = range(1, 41)
     # data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
-    # data_sets = [40] # [10, 20, 30, 40, 50]
+    data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
     fac_number = [5]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
 
