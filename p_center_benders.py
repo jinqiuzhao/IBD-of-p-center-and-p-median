@@ -198,8 +198,9 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
     # for mm in cut_set:
     constr_num = 0
     for mm in cut_set:
-        if mm in y_index:
-            continue
+        # if mm in y_index:
+        #     obj = max(obj, lb)
+        #     continue
         # j = cus_set[mm]
         j = mm
         obj_j = 0
@@ -237,7 +238,7 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
             for k1 in cut_index:
                 constr = MP.getConstrByName(f"cut_{j}_{k1}")
                 if constr is not None:
-                    if constr.RHS <= lb:
+                    if constr.RHS < lb:
                         MP.remove(constr)
                         Cut_index[j, k1] = 0
                     else:
@@ -255,7 +256,7 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
         lhs2 = LinExpr()
         obj_j = c_dis[sort_index[k]]
         if obj_j <= lb and int_sol:
-            obj = max(obj_j, lb)
+            obj = max(obj, lb)
             continue
         for m in range(k):
             obj_j -= (c_dis[sort_index[k]] - c_dis[sort_index[m]]) * y_val[sort_index[m]]
@@ -263,7 +264,7 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
                 continue
             # if not cbcut:
             if c_dis[sort_index[m]] < lb:
-                a = c_dis[sort_index[min(k, ub_k)]] - np.ceil(lb)
+                a = c_dis[sort_index[min(k, ub_k)]] - np.ceil(lb)  # + 1
             else:
                 a = c_dis[sort_index[min(k, ub_k)]] - c_dis[sort_index[m]]
             # else:
@@ -288,10 +289,11 @@ def add_benders_cut(MP, y_val, lb, ub, cb=False, cbcut=False, int_sol=True, upda
                 # Cut_index[j, k_th] = 1
                 # print(f"customer {j}: {w} + {lhs} >= {c_dis[sort_index[k]]}")
             elif cbcut:
-                # if obj_j > np.ceil(lb):  # obj_j > lb:   #  and obj >= ub:  # obj_j:
-                MP.cbCut(w + lhs >= c_dis[sort_index[k]])
+                if obj_j >= max(obj, ub):  # obj_j > lb:   #  and obj >= ub:  # obj_j:
+                    MP.cbCut(w + lhs >= c_dis[sort_index[k]])
+                # print(f"customer {j}: {w} + {lhs} >= {c_dis[sort_index[k]]}")
             # else:  # elif c_dis[sort_index[k]] > lb:
-            elif (obj_j >= max(obj, ub) and (not int_sol)) or (c_dis[sort_index[k]] >= ub and int_sol):
+            elif (obj_j >= max(obj, ub) and (not int_sol)) or (c_dis[sort_index[k]] >= ub and int_sol):  # c_dis[sort_index[k]] >= min(obj, ub)
                 MP.addConstr(w + lhs >= c_dis[sort_index[k]], name="cut_"+str(j)+"_"+str(k_th))
                 # print(f"customer {j}: {w} + lhs >= {c_dis[sort_index[k]]}")
                 if int_sol:
@@ -456,10 +458,10 @@ def call_back(model, where):
         var = np.array(model.cbGetNodeRel(model._vars))
         ub = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBST))
         lb = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBND))  #.MIPNODE_OBJBND)
-        LB = max(lb, LB)
+        # LB = max(lb, LB)
         y_val = var[1:]
         w_val = var[0]
-        if w_val <= lb:
+        if True:  # w_val <= lb:
             rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, min(ub, UB), cbcut=True, int_sol=False, updata=False)
             if int_obj < UB:
                 UB = int_obj
@@ -539,7 +541,7 @@ def Benders_solve():
     org_model.setParam('PreSolve', 2)
     org_model.setParam('OutputFlag', 0)
     # org_model.setParam('LazyConstraints', 1)
-    # org_model.setParam('MIPFocus', 2)
+    org_model.setParam('MIPFocus', 2)
     # org_model.setParam('Method', 0)
     org_model.setParam('PreCrush', 1)
     # org_model.setParam('RINS', 2500)
@@ -555,7 +557,7 @@ def Benders_solve():
         else:
             org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, 0.0)
 
-    y_val, z_val, facility, lb = solve_MP(org_model)  # , callback=call_back)
+    y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
     if lb > LB:
         LB = lb
         org_model.addConstr(org_model.getVarByName(f"w") >= LB)
@@ -567,10 +569,10 @@ def Benders_solve():
         if m == 0:
             for i in range(len(y_star)):
                 org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, y_star[i])
-        else:
-            _, ub, constr_num = add_benders_cut(org_model, y_star, LB, UB, updata=False)
-            UB = min(UB, ub)
-            print(constr_num)
+        # else:
+        #     _, ub, constr_num = add_benders_cut(org_model, y_star, LB, UB, updata=False)
+        #     UB = min(UB, ub)
+        #     print(constr_num)
     # org_model.update()
     _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB)
     print(constr_num)
@@ -595,10 +597,10 @@ def Benders_solve():
             if m == 0:
                 for i in range(len(y_star)):
                     org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, y_star[i])
-            else:
-                _, ub, constr_num = add_benders_cut(org_model, y_star, LB, UB, updata=False)
-                print(constr_num)
-                UB = min(UB, ub)
+            # else:
+            #     _, ub, constr_num = add_benders_cut(org_model, y_star, LB, UB, updata=False)
+            #     print(constr_num)
+            #     UB = min(UB, ub)
         # org_model.update()
         _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB)
         print(constr_num)
@@ -692,12 +694,12 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 5
-    data_sets = range(1, 41)
-    # data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
-    data_sets = [10, 20, 30, 40, 50]
+    data_type = 2
+    # data_sets = range(1, 41)
+    data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
+    # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [5]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
+    fac_number = [10]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
 
     for i in data_sets:
         for f_n in fac_number:
