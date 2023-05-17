@@ -156,7 +156,7 @@ def add_benders_cut(MP, y_val, z_val, cb=False, cbcut=False, count=True):
                 lhs.addTerms(a, y[sort_index[m]])
                 obj_j -= a * y_val[sort_index[m]]
         obj += obj_j
-        if k > 0 and Cut_index[j, k-1] == 0 and z_val[j] <= c_dis[sort_index[k]]:
+        if k > 0 and Cut_index[j, k-1] == 0 and z_val[j] < c_dis[sort_index[k]]:
             if cb:
                 MP.cbLazy(z[j] + lhs >= c_dis[sort_index[k]])
             elif cbcut:
@@ -426,3 +426,4 @@ if __name__ == "__main__":
     print("time_spend", time_spend)
     df.to_csv("pemd_gurobi_result.csv")
     print(df)
+    print(df["opt_time"].sum())

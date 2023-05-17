@@ -1,91 +1,90 @@
-# -*- coding: utf-8 -*-
 import copy
 import os
-import random
-
 from data import Loc_Data
 import numpy as np
 import pandas as pd
 from gurobipy import *
 import time
+from ultis import get_UB1, get_UB2
 
 # Global variable definition
 Dis_m = None  # distance matrix
 Cus_n = 0  # the number of customers
 Fac_n = 0  # the number of candidate facilities
 Fac_L = 0  # the number of facilities selected
+Sort_dis = None  # sorted distance
 Sort_dis_index = None  # the sorted distance index
 Sqs_index = None  # sorting result
 Cut_index = None  # cuts recorder
+Cut_pool = []  # cuts set
 
 
-def build_p_median_MIP():
-    org_model = Model('p_median')
-    y = org_model.addVars(Fac_n, vtype=GRB.BINARY, name="y")
-    obj_lhs = LinExpr()
-    t = {}
-    for j in range(Cus_n):
-        K_set = np.unique(Sqs_index[:, j])
-        t[j] = org_model.addVars(len(K_set), vtype=GRB.BINARY,
-                                 name='t' + str(j))
-        org_model.addConstr(t[j].sum() == 1)
-        for k in K_set:
-            S_jk =  np.where(Sqs_index[:, j] == k)[0]
-            i = S_jk[0]
-            obj_lhs.addTerms(Dis_m[i, j], t[j][k])
-            org_model.addConstr(quicksum(y[i] for i in S_jk) >= t[j][k])
+def solve_P3(S_set, a_cof, y_val=None):
+    model = Model("P3 problem")
+    y = model.addVars(Fac_n, lb=0, ub=1, vtype=GRB.BINARY, name="y")
+    z = model.addVars(len(S_set), lb=0, ub=1, vtype=GRB.BINARY, name="z")
 
-    org_model.setObjective(obj_lhs, GRB.MINIMIZE)
-    org_model.addConstr(y.sum() == Fac_L)
-    org_model.update()
-    # org_model._vars = y  # .tolist()
-    # self.org_model.Params.PreCrush = 1
-    # org_model.Params.lazyConstraints = 1
-    # org_model.Params.Heuristics = 0.001
-    return org_model
+    model.setObjective(quicksum(Sort_dis[int(S_set[k])] * z[k] for k in range(len(S_set))), GRB.MINIMIZE)
+    model.addConstrs(quicksum(a_cof[i, j, k] * y[j] for j in range(Fac_n)) >= z[k] for i in range(Cus_n) for k in range(len(S_set)))
+    model.addConstr(quicksum(y[j] for j in range(Fac_n)) <= Fac_L)
+    model.addConstr(quicksum(z[k] for k in range(len(S_set))) == 1)
 
-def build_p_center_MIP():
-    org_model = Model('p_center')
-    z = org_model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="z")
-    y = org_model.addVars(Fac_n, vtype=GRB.BINARY, name="y")
-    t = {}
-    for j in range(Cus_n):
-        K_set = np.unique(Sqs_index[:, j])
-        t[j] = org_model.addVars(len(K_set), vtype=GRB.BINARY,
-                                 name='t' + str(j))
-        org_model.addConstr(t[j].sum() == 1)
-        obj_lhs = LinExpr()
-        for k in K_set:
-            S_jk =  np.where(Sqs_index[:, j] == k)[0]
-            i = S_jk[0]
-            obj_lhs.addTerms(Dis_m[i, j], t[j][k])
-            org_model.addConstr(quicksum(y[i] for i in S_jk) >= t[j][k])
-        org_model.addConstr(z >= obj_lhs)
+    if y_val is not None:
+        for i in range(Fac_n):
+            model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, y_val[i])
 
-    org_model.setObjective(z, GRB.MINIMIZE)
-    org_model.addConstr(y.sum() == Fac_L)
-    org_model.update()
-    # org_model._vars = y  # .tolist()
-    # self.org_model.Params.PreCrush = 1
-    # org_model.Params.lazyConstraints = 1
-    # org_model.Params.Heuristics = 0.001
-    return org_model
+    model.update()
+    model.setParam('OutputFlag', 0)
+    # model.setParam('PreSolve', 2)
+    # model.setParam('MIPFocus', 2)
+    model.optimize()
+    if model.Status == 2:
+        obj = model.ObjVal
+        # z = [model.getVarByName(f"z[{k}]").x for k in range(len(S_set))]
+        # y = [model.getVarByName(f"y[{i}]").x for i in range(Fac_n)]
+        # print(z)
+    else:
+        obj = np.inf
+    return obj  # , y
 
 
-def cal_sqs_info(dis_m, sort_index):
-    """
-    Computes an indexed set of equidistant weights
-    """
-    sqs_info = np.zeros((Fac_n, Cus_n), dtype=int)
-    for j in range(dis_m.shape[1]):
-        k = 0
-        last_dis = copy.copy(dis_m[sort_index[0, j], j])
-        for s in sort_index[:, j]:
-            if dis_m[s, j] > last_dis:
-                k += 1
-            sqs_info[s, j] = int(k)
-            last_dis = copy.copy(dis_m[s, j])
-    return sqs_info
+def Bound_solve():
+    opt_time = time.time()
+
+    # UB1, _ = get_UB1(Dis_m, Fac_L)
+    UB, UB1 = get_UB2(Dis_m, Fac_L)
+    LB = UB1 / 2
+    UB_index = np.where(Sort_dis == UB)[0][0]
+    LB_index = np.abs(Sort_dis - LB).argmin()
+    inter = 0
+    while UB_index - LB_index >= 1:
+        inter += 1
+        # y_var_1 = None
+        # y_var_2 = None
+        a_index = int(np.floor((UB_index + LB_index) / 2))
+        b_index = int(UB_index - 1)
+        S_set = [a_index, b_index]
+        a_cof = np.zeros([Cus_n, Fac_n, len(S_set)])
+        for k in range(len(S_set)):
+            a_cof[:, :, k] = (Dis_m <= Sort_dis[S_set[k]])
+        # obj = solve_P3(S_set, a_cof)
+        obj1 = solve_P3([a_index], a_cof[:, :, [0]])  #, y_var_1)
+        obj2 = solve_P3([b_index], a_cof[:, :, [1]])  #, y_var_2)
+        obj = min(obj1, obj2)
+        if obj == Sort_dis[a_index]:
+            UB_index = a_index
+        elif obj == Sort_dis[b_index]:
+            LB_index = a_index + 1
+            UB_index = b_index
+        else:
+            LB_index = b_index + 1
+        if time.time() - opt_time >= 36000:
+            break
+
+    UB = Sort_dis[UB_index]
+    LB = Sort_dis[LB_index]
+    # UB = min(UB, LB)
+    return UB, LB, opt_time, inter
 
 
 def load_data(data_type, data_set=None):
@@ -98,7 +97,7 @@ def load_data(data_type, data_set=None):
         5：ring_radial dataset，data_set in [10, 20, 30, 40, 50] is the grid size
         6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
     :return:
-        instance
+        instance:
     """
     global Fac_L
     if data_type == 1:
@@ -113,7 +112,7 @@ def load_data(data_type, data_set=None):
         data_path = f"data/tsp/{data_set}"    #u1060 rl1304，u1817"   # "pcb1173
         instance = Loc_Data()
         instance.read_tsp(data_path)
-        Fac_L = 5
+        Fac_L = 5  # 5
     elif data_type == 3:
         node_num, p = 10000, 5
         instance = Loc_Data(cus_num=node_num, f_num=node_num, p=p)
@@ -141,8 +140,9 @@ def load_data(data_type, data_set=None):
 
 
 if __name__ == "__main__":
-    df = pd.DataFrame(columns=["pmed No.", "Optima", "opt_time", "total_time", "Iter_num"])
+    df = pd.DataFrame(columns=["pmed No.", "Optima", "LB", "opt_time", "total_time", "Iter_num"])
     result = []
+    iter_num = []
     time_spend = []
     """
         data_type:
@@ -156,30 +156,32 @@ if __name__ == "__main__":
         """
     data_type = 1
     data_sets = range(1, 41)
-    # data_sets = ["rat575","pcb1173", "u1060", "dsj1000"]
+    # data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
     # data_sets = [10, 20, 30, 40, 50]
-    # data_sets = ["Portland", "Manhattan", "beijing", "chengdu"]
-    # data_sets = ["Manhattan"]
+    # data_sets = ["beijing"]  # ["Manhattan", "chengdu", "Portland", "beijing"]
 
     for i in data_sets:
         instance = load_data(data_type, data_set=i)
+        t_initial = time.time()
         Dis_m = instance.dis_matrix
+        std = np.std(Dis_m)
+        mean = np.mean(Dis_m)
         Cus_n = instance.customer_num
         Fac_n = instance.facility_num
         Cut_index = np.zeros((Cus_n, Fac_n), dtype=int)
-        Sort_dis_index = np.argsort(Dis_m, axis=0)
-        Sqs_index = cal_sqs_info(Dis_m, Sort_dis_index)
-        t_initial = time.time()
+        Sort_dis = np.sort(np.unique(Dis_m.flatten()))
+        # Sort_dis_index = np.argsort(Dis_m, axis=0)
+        # Sqs_index = cal_sqs_info(Dis_m, Sort_dis_index)
+        # t_initial = time.time()
 
-        # p-median or p-center
-        orig_model = build_p_median_MIP()
-        # orig_model = build_p_center_MIP()
+        # Solve the original MIP model
+        # UB, opt_time = solve_MIP()
 
-        opt_time = time.time()
-        orig_model.optimize()
-        UB = orig_model.ObjVal
+        # IBD algorithm
+        UB, LB, opt_time, inter = Bound_solve()
 
         result.append(UB)
+        iter_num.append(inter)
         time_spend.append(time.time() - opt_time)
         print('============================================')
         print('Instance ', i)
@@ -187,9 +189,9 @@ if __name__ == "__main__":
         # print('Optimal Location', facility)
         print("opt_time:", time.time() - opt_time)
         print(f'whole time cost: time = {time.time() - t_initial}')
-        df.loc[len(df.index)] = [i, UB, time.time() - opt_time, time.time() - t_initial, 0]
+        df.loc[len(df.index)] = [i, UB, LB, time.time() - opt_time, time.time() - t_initial, inter]
 
     print("Result:", result)
     print("time_spend", time_spend)
-    df.to_csv("pemd_CARS_result.csv")
+    df.to_csv("pemd_pcenter_result.csv")
     print(df)
