@@ -47,14 +47,34 @@ def solve_MP(MP, callback=None, print_sol=False):
         MP.optimize(callback)
     else:
         MP.optimize()
-    y_val = np.zeros(Fac_n)
-    w_val = MP.getVarByName(f"w").x
-    for i in range(Fac_n):
-        y_val[i] = MP.getVarByName(f"y[{i}]").x
+    if MP.isMIP:
+        a = 1
+        while MP.SolCount < 1 and a < 10:
+            print("cannot find feasible solution!")
+            MP.setParam('TimeLimit', 50 * 1)
+            MP.optimize()
+            a += 1
+        if a > 1:
+            MP.setParam('TimeLimit', 50)
+        MP.Params.SolutionNumber = 0
+        lb = MP.ObjVal
+        if MP.Status != 2:
+            lb = MP.PoolObjVal
+        y_val = np.array(MP.Xn[1:])
+        w_val = MP.Xn[0]
+    else:
+        y_val = np.zeros(Fac_n)
+        w_val = MP.getVarByName(f"w").x
+        for i in range(Fac_n):
+            y_val[i] = MP.getVarByName(f"y[{i}]").x
+        lb = MP.ObjVal
     facility = np.argpartition(y_val, -Fac_L)[-Fac_L:]
+    # if MP.Status != 2:
+    #     lb = MP.BesetBond
     if print_sol:
         print("facility:", facility)
-    return y_val, w_val, facility, MP.ObjVal
+    return y_val, w_val, facility, lb
+
 
 
 def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.01):
@@ -599,11 +619,11 @@ def call_back(model, where):
         var = np.array(model.cbGetNodeRel(model._vars))
         ub = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBST))
         lb = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBND))  #.MIPNODE_OBJBND)
-        # LB = max(lb, LB)
+        LB = max(lb, LB)
         y_val = var[1:]
         w_val = var[0]
         # if w_val <= lb:
-        rel_obj, int_obj, _ = add_benders_cut(model, y_val, lb, UB, cbcut=True, int_sol=False, updata=False)
+        rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cbcut=True, int_sol=False, updata=False)
 
     # Lazycut
     # if where == GRB.callback.MIPSOL:
@@ -672,15 +692,15 @@ def Benders_solve():
     # UB = 100000
 
     org_model.Params.PoolGap = 0.01
-    # org_model.setParam('TimeLimit', 100)
+    org_model.setParam('TimeLimit', 50)
     # org_model.Params.PoolSolutions = 5
     # org_model.Params.timeLimit = 600
     # org_model.setParam('PreSolve', 2)
     org_model.setParam('OutputFlag', 0)
     # org_model.setParam('LazyConstraints', 1)
-    org_model.setParam('MIPFocus', 2)
+    # org_model.setParam('MIPFocus', 2)
     # org_model.setParam('Method', 0)
-    org_model.setParam('PreCrush', 1)
+    # org_model.setParam('PreCrush', 1)
     # org_model.setParam('RINS', 2500)
     # org_model.setParam('Cuts', 1)
     # org_model.setParam('CutPasses', 1)
@@ -696,7 +716,7 @@ def Benders_solve():
     org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     org_model.update()
 
-    y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
+    y_val, z_val, facility, lb = solve_MP(org_model) #, callback=call_back)
     if lb > LB:
         LB = lb
         org_model.addConstr(org_model.getVarByName(f"w") >= LB)
@@ -704,7 +724,7 @@ def Benders_solve():
     for m in range(0, org_model.SolCount):
         org_model.Params.SolutionNumber = m
         pool_obj = org_model.PoolObjVal
-        y_star = org_model.Xn[1:]
+        y_star = np.array(org_model.Xn[1:])
         if m == 0:
             for i in range(len(y_star)):
                 org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, y_star[i])
@@ -726,7 +746,7 @@ def Benders_solve():
         print(f' current time cost: time = {time.time() - t_initial}')
         print()
         print(constr_num)
-        y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
+        y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
         # LB = max(LB, lb)
         if lb > LB:
             LB = lb
@@ -734,7 +754,7 @@ def Benders_solve():
         for m in range(0, org_model.SolCount):
             org_model.setParam('SolutionNumber', m)
             pool_obj = org_model.PoolObjVal
-            y_star = org_model.Xn[1:]
+            y_star = np.array(org_model.Xn[1:])
             if m == 0:
                 for i in range(len(y_star)):
                     org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, y_star[i])
@@ -755,8 +775,8 @@ def Benders_solve():
             no_change_cnt += 1
         elif constr_num > 0:
             no_change_cnt = 0
-        # if time.time() - opt_time >= 600:
-        #     break
+        if time.time() - opt_time >= 3600:
+            break
     print()
     # print(facility)
     return UB, LB, opt_time, inter, LB_0
@@ -846,7 +866,7 @@ if __name__ == "__main__":
     data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [10]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
+    fac_number = [5]  #[20, 50, 100, 200, 300, 400, 500]
 
     for i in data_sets:
         for f_n in fac_number:
