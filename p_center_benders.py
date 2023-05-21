@@ -49,13 +49,13 @@ def solve_MP(MP, callback=None, print_sol=False):
         MP.optimize()
     if MP.isMIP:
         a = 1
-        while MP.SolCount < 1 and a < 10:
+        while MP.SolCount < 1 and a < 20:
             print("cannot find feasible solution!")
-            MP.setParam('TimeLimit', 50 * 1)
+            MP.setParam('TimeLimit', 30 * a)
             MP.optimize()
             a += 1
         if a > 1:
-            MP.setParam('TimeLimit', 50)
+            MP.setParam('TimeLimit', 10)
         MP.Params.SolutionNumber = 0
         lb = MP.ObjVal
         if MP.Status != 2:
@@ -235,9 +235,9 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                            (float_obj_j >= float_obj)
                            )[0]
     elif int_sol and not cb:
-        cut_ub = int_obj_j[int_obj_j > np.ceil(lb)].min()
-        cut_set = np.where(((int_obj_j > np.ceil(lb))
-                           & (int_obj_j <= cut_ub)) |
+        cut_ub = min(int_obj_j[int_obj_j >= ((lb + ub) / 2)].min(), ub)
+        # cut_ub = np.floor((lb + ub) / 2)
+        cut_set = np.where(((int_obj_j > np.ceil(lb)) & (int_obj_j <= cut_ub)) |
                             (int_obj_j >= int_obj)
                            )[0]
     elif cbcut:
@@ -316,7 +316,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                 # print(f"customer {j}: {w} + {lhs} >= {int_obj_j[j]}")
             else:
                 MP.addConstr(w + lhs >= Sort_dis[k_th], name="cut_" + str(j) + "_" + str(k_th))
-                # print(f"customer {j}: {w} + {lhs} >= {Sort_dis[k_th]}")
+                # print(f"customer {j}: {w} + lhs >= {Sort_dis[k_th]}")
                 # if MP_int is None:
                 constr_num += 1
                 Cut_index[j, k_th] = 1
@@ -692,13 +692,13 @@ def Benders_solve():
     # UB = 100000
 
     org_model.Params.PoolGap = 0.01
-    org_model.setParam('TimeLimit', 50)
+    org_model.setParam('TimeLimit', 10)
     # org_model.Params.PoolSolutions = 5
     # org_model.Params.timeLimit = 600
     # org_model.setParam('PreSolve', 2)
     org_model.setParam('OutputFlag', 0)
     # org_model.setParam('LazyConstraints', 1)
-    # org_model.setParam('MIPFocus', 2)
+    # org_model.setParam('MIPFocus', 3)  # 3 优化边界
     # org_model.setParam('Method', 0)
     # org_model.setParam('PreCrush', 1)
     # org_model.setParam('RINS', 2500)
@@ -715,9 +715,10 @@ def Benders_solve():
             org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, 0.0)
     org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     org_model.update()
-
+    update_model = False
     y_val, z_val, facility, lb = solve_MP(org_model) #, callback=call_back)
     if lb > LB:
+        update_model = True
         LB = lb
         org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     # LB = max(LB, lb)
@@ -733,9 +734,13 @@ def Benders_solve():
         #     UB = min(UB, ub)
         #     print(constr_num)
     # org_model.update()
-    _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB)
+
+    _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB, updata=update_model)
     # print(constr_num)
-    UB = min(UB, ub)
+    # UB = min(UB, ub)
+    if ub < UB:
+        update_model = True
+        UB = ub
     inter = 0
     no_change_cnt = 0
     while abs(UB - LB) / (LB + 0.001) > 0.0001:
@@ -749,6 +754,7 @@ def Benders_solve():
         y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
         # LB = max(LB, lb)
         if lb > LB:
+            update_model = True
             LB = lb
             org_model.addConstr(org_model.getVarByName(f"w") >= np.ceil(LB))
         for m in range(0, org_model.SolCount):
@@ -763,13 +769,14 @@ def Benders_solve():
             #     print(constr_num)
             #     UB = min(UB, ub)
         # org_model.update()
-        _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB, con_0=no_change_cnt)
+        _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB, con_0=no_change_cnt, updata=update_model)
         # if ub > UB:
         #     adf = 1
         if ub <= LB:
             UB = LB
-        else:
-            UB = min(UB, ub)
+        elif ub < UB:
+            update_model = True
+            UB = ub
         inter += 1
         if constr_num <= 0:
             no_change_cnt += 1
@@ -866,7 +873,7 @@ if __name__ == "__main__":
     data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [5]  #[20, 50, 100, 200, 300, 400, 500]
+    fac_number = [5, 10, 20, 50, 100, 200, 300, 400, 500]
 
     for i in data_sets:
         for f_n in fac_number:
