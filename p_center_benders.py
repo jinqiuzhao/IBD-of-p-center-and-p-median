@@ -226,8 +226,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
     ub_k_js = np.argmax(y_dis >= min(ub, relax_ub), axis=1)
     ub_k_ths_js = np.searchsorted(Sort_dis, min(ub, relax_ub))
     if not cbcut:
-        y_dis[y_dis < np.ceil(lb)] = np.ceil(
-            lb)  # This modifies the original problem, but does not affect the integer solution
+        y_dis[y_dis < np.ceil(lb)] = np.ceil(lb)  # This modifies the original problem, but does not affect the integer solution
     a_matrix = int_obj_j[:, np.newaxis] - y_dis
     a_matrix[a_matrix < 0] = 0
     float_obj_j = int_obj_j - np.sum(np.multiply(a_matrix, y_sort), axis=1)
@@ -263,11 +262,14 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                            )[0]
     elif cbcut:
         # cut_set = np.where(float_obj_j > lb)[0]
-        part_obj_j = int_obj_j[int_obj_j > lb]
-        num = int(min(len(part_obj_j), 30))
-        max_ub = np.partition(part_obj_j, -num)[-num:].min()
+        part_obj_j = int_obj_j[int_obj_j > np.ceil(lb)]
+        num = int(min(len(part_obj_j), 10))
+        if num <= 0:
+            max_ub = np.ceil(lb) + 1
+        else:
+            max_ub = np.partition(part_obj_j, -num)[-num:].min()
         cut_set = np.where(# ((float_obj_j >= lb) & (float_obj_j <= cut_ub)) |
-                           (float_obj_j >= max_ub)
+                           (int_obj_j >= max_ub)
                            )[0]
     elif cb:
         # lazycut: All unconstrained cases must be excluded
@@ -650,11 +652,11 @@ def call_back(model, where):
         var = np.array(model.cbGetNodeRel(model._vars))
         ub = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBST))
         lb = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBND))  # .MIPNODE_OBJBND)
-        LB = max(lb, LB)
+        # LB = max(lb, LB)
         y_val = var[1:]
         w_val = var[0]
         # if w_val <= lb:
-        rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cbcut=True, int_sol=False, updata=0)
+        rel_obj, int_obj, _ = add_benders_cut(model, y_val, lb, UB, cbcut=True, int_sol=False, updata=0)
 
     # Lazycut
     # if where == GRB.callback.MIPSOL:
@@ -747,7 +749,7 @@ def Benders_solve():
     org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     org_model.update()
     update_model = 0
-    y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
+    y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
     if lb > LB:
         update_model += 1
         LB = lb
@@ -783,7 +785,7 @@ def Benders_solve():
         print(f' current time cost: time = {time.time() - t_initial}')
         print()
         print(constr_num)
-        y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
+        y_val, z_val, facility, lb = solve_MP(org_model)  # , callback=call_back)
         # LB = max(LB, lb)
         if lb > LB:
             update_model += 1
