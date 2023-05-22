@@ -76,7 +76,6 @@ def solve_MP(MP, callback=None, print_sol=False):
     return y_val, w_val, facility, lb
 
 
-
 def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.01):
     t_initial = time.time()
     int_UB = UB1
@@ -96,7 +95,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.01):
     # MP_relax.setParam('PreCrush', 1)
     # MP_relax.setParam('SimplexPricing', 3)
     # MP.setParam('Method', 3)
-    y_val, z_val, facility, low_bound = solve_MP(MP_relax)   #MP.relax())
+    y_val, z_val, facility, low_bound = solve_MP(MP_relax)  # MP.relax())
     LB = max(LB, low_bound)
     MP.setParam('OutputFlag', 0)
     # low_bound = 0
@@ -111,7 +110,8 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.01):
         t_start = time.time()
         # print(f'Iter: {benders_iter} iteration SP time cost: time = {time.time() - t_start}')
         # if LB1 < ub_obj < int_UB: # UB < UB1:  # Gap < 50:   # UB < UB1: # UB1 > low_bound > LB1:  #
-        ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, int_UB, relax_ub=UB, int_sol=False, updata=False, con_0=no_change_cnt, MP_int=MP,)
+        ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, int_UB, relax_ub=UB, int_sol=False, updata=0,
+                                                      con_0=no_change_cnt, MP_int=MP, )
         # else:
         #     ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, UB, int_sol=False)
         int_UB = min(int_UB, int_obj)
@@ -128,12 +128,12 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.01):
 
         Gap = round(100 * (UB - LB) / (LB + 0.0001), 4)
 
-        # print(constr_num)
-        # print(' %7.2f ' % UB, end='')
-        # print(' %7.2f ' % LB, end='')
-        # print(' %8.4f ' % Gap, end='%')
-        # print(f'    current time cost: time = {time.time() - t_initial}')
-        # print()
+        print(constr_num)
+        print(' %7.2f ' % UB, end='')
+        print(' %7.2f ' % LB, end='')
+        print(' %8.4f ' % Gap, end='%')
+        print(f'    current time cost: time = {time.time() - t_initial}')
+        print()
 
         # print()
         # assert self.Gap >= -1e-5
@@ -154,7 +154,8 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.01):
 
     global Cut_index
     Cut_index = np.zeros((Cus_n, len(Sort_dis)), dtype=int)
-    ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, int_UB, relax_ub=int_UB, int_sol=False, MP_int=MP)
+    ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, int_UB, relax_ub=int_UB, int_sol=False,
+                                                  MP_int=MP, updata=3)
     print(constr_num)
     int_UB = min(int_UB, int_obj)
     # MP.update()
@@ -201,7 +202,8 @@ def build_original_MIP():
     return org_model
 
 
-def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, int_sol=True, updata=True, MP_int=None, con_0=0):
+def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, int_sol=True, updata=0, MP_int=None,
+                    con_0=0):
     t_1 = time.time()
     y = [MP.getVarByName(f"y[{i}]") for i in range(Fac_n)]
     w = MP.getVarByName(f"w")
@@ -222,23 +224,42 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         return int_obj, int_obj, constr_num
     k_ths_js = np.searchsorted(Sort_dis, int_obj_j)
     ub_k_js = np.argmax(y_dis >= min(ub, relax_ub), axis=1)
-    ub_k_ths_js = np.searchsorted(Sort_dis,  min(ub, relax_ub))
+    ub_k_ths_js = np.searchsorted(Sort_dis, min(ub, relax_ub))
     # if not cbcut:
-    y_dis[y_dis < np.ceil(lb)] = np.ceil(lb)  # This modifies the original problem, but does not affect the integer solution
+    y_dis[y_dis < np.ceil(lb)] = np.ceil(
+        lb)  # This modifies the original problem, but does not affect the integer solution
     a_matrix = int_obj_j[:, np.newaxis] - y_dis
     a_matrix[a_matrix < 0] = 0
     float_obj_j = int_obj_j - np.sum(np.multiply(a_matrix, y_sort), axis=1)
     float_obj = np.max(float_obj_j)
     if not int_sol and not cbcut:
-        cut_ub = float_obj_j[float_obj_j > np.ceil(lb)].min()
+        part_obj_j = float_obj_j[float_obj_j > np.ceil(lb)]
+        num = int(min(np.ceil(len(part_obj_j) * 0.1), 10))
+        max_ub = np.partition(part_obj_j, -num)[-num:].min()
+
+        part_obj_j = part_obj_j[part_obj_j < min(ub, relax_ub)]
+        num = int(min(np.floor(len(part_obj_j) * 0.1), 1))
+        if num <= 0:
+            cut_ub = min(ub, relax_ub)
+        else:
+            cut_ub = np.partition(part_obj_j, num)[:num].max()
         cut_set = np.where(((float_obj_j > np.ceil(lb)) & (float_obj_j <= cut_ub)) |
-                           (float_obj_j >= float_obj)
+                           # (float_obj_j >= float_obj)
+                           (float_obj_j >= max_ub)
                            )[0]
     elif int_sol and not cb:
-        cut_ub = min(int_obj_j[int_obj_j >= ((lb + ub) / 2)].min(), ub)
-        # cut_ub = np.floor((lb + ub) / 2)
+        part_obj_j = int_obj_j[int_obj_j > np.ceil(lb)]
+        num = int(min(np.ceil(len(part_obj_j) * 0.5), 20))
+        max_ub = np.partition(part_obj_j, -num)[-num:].min()
+
+        part_obj_j = part_obj_j[part_obj_j < ub]
+        num = int(min(np.floor(len(part_obj_j) * 0.5), 20))
+        if num > 0:
+            cut_ub = np.partition(part_obj_j, num)[:num].max()
+        else:
+            cut_ub = ub
         cut_set = np.where(((int_obj_j > np.ceil(lb)) & (int_obj_j <= cut_ub)) |
-                            (int_obj_j >= int_obj)
+                           (int_obj_j >= max_ub)
                            )[0]
     elif cbcut:
         # cut_ub = float_obj_j[float_obj_j > np.ceil(lb)].min()
@@ -275,7 +296,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         #             else:
         #                 break
         if j == 46:
-            adf=10
+            adf = 10
         if k_js[j] <= ub_k_js[j]:
             k = k_js[j]
             k_th = k_ths_js[j]
@@ -311,7 +332,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                 # print(f"customer {j}: {w} + {lhs} >= {c_dis[sort_index[k]]}")
             elif cbcut:
                 if Cut_index[j, k_th] == 0:
-                # if Sort_dis[k_th] >= max(float_obj, ub):  # obj_j > lb:   #  and obj >= ub:  # obj_j:
+                    # if Sort_dis[k_th] >= max(float_obj, ub):  # obj_j > lb:   #  and obj >= ub:  # obj_j:
                     MP.cbCut(w + lhs >= Sort_dis[k_th])
                 # print(f"customer {j}: {w} + {lhs} >= {int_obj_j[j]}")
             else:
@@ -320,10 +341,10 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                 # if MP_int is None:
                 constr_num += 1
                 Cut_index[j, k_th] = 1
-                    # print(f"customer {j}: {w} + {lhs} >= {Sort_dis[k_th]}")
+                # print(f"customer {j}: {w} + {lhs} >= {Sort_dis[k_th]}")
                 if MP_int is not None and np.ceil(lb) < Sort_dis[k_th] < ub:
-                # if MP_int is not None and np.ceil(lb) < int_obj_j[j] < ub:
-                        # max(ub - constr_num, np.ceil(lb) + 1): # max(relax_ub, np.ceil(lb) + 1):
+                    # if MP_int is not None and np.ceil(lb) < int_obj_j[j] < ub:
+                    # max(ub - constr_num, np.ceil(lb) + 1): # max(relax_ub, np.ceil(lb) + 1):
                     # and c_dis[sort_index[k]] > lb:  # and (ub-mp_obj)/(mp_obj+0.0001) <= 100:
                     MP_int.addConstr(w_1 + lhs2 >= Sort_dis[k_th], name="cut_" + str(j) + "_" + str(k_th))
                     # print("add")
@@ -331,21 +352,28 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                     # constr_num += 1
                     # print(f"customer {j}: {w} + lhs >= {Sort_dis[k_th]}")
     # print("add_cut:", time.time() - t_2)
-    if updata:
+    if updata > 0:
         indices = np.transpose(np.where(Cut_index != 0))
         # cut_index = [(x, y) for x, y in indices]
         for a in indices:
             j, k = a[0], a[1]
             constr = MP.getConstrByName(f"cut_{j}_{k}")
             if constr is not None:
-                if constr.RHS <= lb or constr.RHS > ub:
+                # if updata >= 3:
+                #     if constr.RHS <= lb or constr.RHS > ub:
+                #         MP.remove(constr)
+                #         Cut_index[j, k] = 0
+                if updata >= 2:
+                    if constr.RHS > ub:
+                        MP.remove(constr)
+                        Cut_index[j, k] = 0
+                # elif updata >= 1:
+                if constr.RHS <= lb:
                     MP.remove(constr)
                     Cut_index[j, k] = 0
         MP.update()
     # print(constr_num)
     return float_obj, int_obj, constr_num
-
-
 
     # for j in cut_set:
     #     obj_j = 0
@@ -533,6 +561,7 @@ def slove_SPs(SPs, y_val, MP):
     MP.update()
     return max(sp_obj)
 
+
 def pure_decomposition(MP, eps=0.00001):
     print('============================================')
     print('============================================')
@@ -591,9 +620,10 @@ def add_benders_cut_sep(MP, y_val, mp_obj, cb=False, cbcut=False):
                 a = c_dis[sort_index[k]] - c_dis[sort_index[m]]
                 if a != 0:
                     cur_f.append(sort_index[m])
-                    if c_dis[sort_index[m+1]] > c_dis[sort_index[m]]:
+                    if c_dis[sort_index[m + 1]] > c_dis[sort_index[m]]:
                         for i in cur_f:
-                            MP.addConstr(w + a * y[i] >= c_dis[sort_index[k]] * (1 - lhs2 - quicksum(y[g] for g in cur_f if g != i)))
+                            MP.addConstr(w + a * y[i] >= c_dis[sort_index[k]] * (
+                                        1 - lhs2 - quicksum(y[g] for g in cur_f if g != i)))
                             print(f"{w} + y[{i}] >= {c_dis[sort_index[k]]} * {1 - lhs2}")
                         for i in cur_f:
                             lhs2.addTerms(1, y[i])
@@ -618,12 +648,12 @@ def call_back(model, where):
     if where == GRB.callback.MIPNODE and model.cbGet(GRB.Callback.MIPNODE_STATUS) == GRB.OPTIMAL:
         var = np.array(model.cbGetNodeRel(model._vars))
         ub = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBST))
-        lb = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBND))  #.MIPNODE_OBJBND)
+        lb = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBND))  # .MIPNODE_OBJBND)
         LB = max(lb, LB)
         y_val = var[1:]
         w_val = var[0]
         # if w_val <= lb:
-        rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cbcut=True, int_sol=False, updata=False)
+        rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cbcut=True, int_sol=False, updata=0)
 
     # Lazycut
     # if where == GRB.callback.MIPSOL:
@@ -683,7 +713,7 @@ def Benders_solve():
     UB, UB1, f_set = get_UB2(Dis_m, Fac_L)
     obj = np.max(np.min(Dis_m[:, list(f_set)], axis=1))
     UB = min(UB, obj)
-    LB = np.ceil(UB1/2)
+    LB = np.ceil(UB1 / 2)
     print(LB, UB)
     LB_0, UB_0 = Benders_Decomposition(org_model, UB, LB)
     LB, UB = LB_0, UB_0
@@ -715,10 +745,10 @@ def Benders_solve():
             org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, 0.0)
     org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     org_model.update()
-    update_model = False
-    y_val, z_val, facility, lb = solve_MP(org_model) #, callback=call_back)
+    update_model = 0
+    y_val, z_val, facility, lb = solve_MP(org_model)  # , callback=call_back)
     if lb > LB:
-        update_model = True
+        update_model += 1
         LB = lb
         org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     # LB = max(LB, lb)
@@ -736,10 +766,11 @@ def Benders_solve():
     # org_model.update()
 
     _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB, updata=update_model)
+    update_model = 0
     # print(constr_num)
     # UB = min(UB, ub)
     if ub < UB:
-        update_model = True
+        update_model += 2
         UB = ub
     inter = 0
     no_change_cnt = 0
@@ -751,10 +782,10 @@ def Benders_solve():
         print(f' current time cost: time = {time.time() - t_initial}')
         print()
         print(constr_num)
-        y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
+        y_val, z_val, facility, lb = solve_MP(org_model)  # , callback=call_back)
         # LB = max(LB, lb)
         if lb > LB:
-            update_model = True
+            update_model += 1
             LB = lb
             org_model.addConstr(org_model.getVarByName(f"w") >= np.ceil(LB))
         for m in range(0, org_model.SolCount):
@@ -770,12 +801,13 @@ def Benders_solve():
             #     UB = min(UB, ub)
         # org_model.update()
         _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB, con_0=no_change_cnt, updata=update_model)
+        update_model = 0
         # if ub > UB:
         #     adf = 1
         if ub <= LB:
             UB = LB
         elif ub < UB:
-            update_model = True
+            update_model += 2
             UB = ub
         inter += 1
         if constr_num <= 0:
@@ -811,7 +843,7 @@ def load_data(data_type, data_set=None, fac_n=None):
         instance.read_pmed(data_path)
         Fac_L = instance.f_limit
     elif data_type == 2:
-        data_path = f"data/tsp/{data_set}"    #u1060 rl1304，u1817"   # "pcb1173
+        data_path = f"data/tsp/{data_set}"  # u1060 rl1304，u1817"   # "pcb1173
         instance = Loc_Data()
         instance.read_tsp(data_path)
         if fac_n is not None:
@@ -825,12 +857,12 @@ def load_data(data_type, data_set=None, fac_n=None):
         if fac_n is not None:
             Fac_L = fac_n
         else:
-            Fac_L = instance.f_limit   # i
+            Fac_L = instance.f_limit  # i
     elif data_type == 4:
         node_num, p = 10000, 5
         instance = Loc_Data(cus_num=node_num, f_num=node_num, p=p)
         instance.generate_rectangular_instance(data_set, data_set)
-        Fac_L = instance.f_limit   # i
+        Fac_L = instance.f_limit  # i
     elif data_type == 5:
         node_num, p = 10000, 5
         instance = Loc_Data(cus_num=node_num, f_num=node_num, p=p)
@@ -838,7 +870,7 @@ def load_data(data_type, data_set=None, fac_n=None):
         if fac_n is not None:
             Fac_L = fac_n
         else:
-            Fac_L = instance.f_limit   # i
+            Fac_L = instance.f_limit  # i
     else:
         assert data_type == 6
         print(f"\n\n city_instance_{data_set}")
@@ -868,12 +900,12 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 2
-    # data_sets = range(1, 41)
-    data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
-    # data_sets = [10, 20, 30, 40, 50]
+    data_type = 1
+    data_sets = range(1, 41)
+    # data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
+    # data_sets = [50]  # [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [5, 10, 20, 50, 100, 200, 300, 400, 500]
+    fac_number = [5]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
 
     for i in data_sets:
         for f_n in fac_number:
