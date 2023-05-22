@@ -59,7 +59,7 @@ def solve_MP(MP, callback=None, print_sol=False):
         MP.Params.SolutionNumber = 0
         lb = MP.ObjVal
         if MP.Status != 2:
-            lb = MP.PoolObjVal
+            lb = MP.ObjBound     # PoolObjBound
         y_val = np.array(MP.Xn[1:])
         w_val = MP.Xn[0]
     else:
@@ -76,7 +76,7 @@ def solve_MP(MP, callback=None, print_sol=False):
     return y_val, w_val, facility, lb
 
 
-def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.01):
+def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.1):
     t_initial = time.time()
     int_UB = UB1
     # global LB, UB
@@ -375,6 +375,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                 if constr.RHS <= lb:
                     MP.remove(constr)
                     Cut_index[j, k] = 0
+    if not cb and not cbcut:
         MP.update()
     # print(constr_num)
     return float_obj, int_obj, constr_num
@@ -653,12 +654,11 @@ def call_back(model, where):
         var = np.array(model.cbGetNodeRel(model._vars))
         ub = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBST))
         lb = np.ceil(model.cbGet(GRB.callback.MIPNODE_OBJBND))  # .MIPNODE_OBJBND)
-        LB = max(lb, LB)
-        assert np.ceil(lb) >= LB
+        assert lb >= LB
         y_val = var[1:]
         w_val = var[0]
         # if w_val <= lb:
-        rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cbcut=True, int_sol=False, updata=0)
+        rel_obj, int_obj, _ = add_benders_cut(model, y_val, max(lb, LB), UB, cbcut=True, int_sol=False, updata=0)
 
     # Lazycut
     # if where == GRB.callback.MIPSOL:
@@ -751,7 +751,7 @@ def Benders_solve():
     org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     org_model.update()
     update_model = 0
-    y_val, z_val, facility, lb = solve_MP(org_model , callback=call_back)
+    y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
     if lb > LB:
         update_model += 1
         LB = lb
@@ -770,7 +770,7 @@ def Benders_solve():
         #     print(constr_num)
     # org_model.update()
 
-    _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB) # , updata=update_model)
+    _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB, updata=update_model)
     update_model = 0
     # print(constr_num)
     # UB = min(UB, ub)
@@ -787,12 +787,13 @@ def Benders_solve():
         print(f' current time cost: time = {time.time() - t_initial}')
         print()
         print(constr_num)
-        y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
+        y_val, z_val, facility, lb = solve_MP(org_model)  # , callback=call_back)
         # LB = max(LB, lb)
         if lb > LB:
             update_model += 1
             LB = lb
             org_model.addConstr(org_model.getVarByName(f"w") >= np.ceil(LB))
+            # print(f"add constr: {np.ceil(LB)}")
         for m in range(0, org_model.SolCount):
             org_model.setParam('SolutionNumber', m)
             pool_obj = org_model.PoolObjVal
@@ -910,7 +911,7 @@ if __name__ == "__main__":
     data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [5, 10, 20, 50, 100, 200, 300, 400, 500]
+    fac_number = [20]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
 
     for i in data_sets:
         for f_n in fac_number:
