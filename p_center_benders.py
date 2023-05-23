@@ -8,6 +8,7 @@ import time
 from ultis import get_UB1, get_UB2
 
 # Global variable definition
+MP_SOlVE_TIME = 10  # seconds
 Dis_m = None  # distance matrix
 Cus_n = 0  # the number of customers
 Fac_n = 0  # the number of candidate facilities
@@ -55,11 +56,11 @@ def solve_MP(MP, callback=None, print_sol=False):
             MP.optimize()
             a += 1
         if a > 1:
-            MP.setParam('TimeLimit', 10)
+            MP.setParam('TimeLimit', MP_SOlVE_TIME)
         MP.Params.SolutionNumber = 0
         lb = MP.ObjVal
         if MP.Status != 2:
-            lb = MP.ObjBound     # PoolObjBound
+            lb = np.ceil(max(MP.ObjBound, MP.PoolObjBound))
         y_val = np.array(MP.Xn[1:])
         w_val = MP.Xn[0]
     else:
@@ -233,7 +234,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
     float_obj = np.max(float_obj_j)
     if not int_sol and not cbcut:
         part_obj_j = float_obj_j[float_obj_j > lb]  #= np.ceil(lb)]
-        num = int(min(np.ceil(len(part_obj_j) * 0.1), 10))
+        num = int(min(np.ceil(len(part_obj_j) * 0.1), 10))   # 10
         max_ub = np.partition(part_obj_j, -num)[-num:].min()
 
         part_obj_j = part_obj_j[part_obj_j <= min(ub, relax_ub)]
@@ -247,34 +248,39 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                            (float_obj_j >= max_ub)
                            )[0]
     elif int_sol and not cb:
-        part_obj_j = int_obj_j[int_obj_j > lb]
-        num = int(min(np.ceil(len(part_obj_j) * 0.5), 20))
+        part_obj_j = int_obj_j[int_obj_j > np.ceil(lb)]
+        num = int(min(np.ceil(len(part_obj_j) * 0.5), 20))   # 20
         max_ub = np.partition(part_obj_j, -num)[-num:].min()
 
         part_obj_j = part_obj_j[part_obj_j <= ub]
-        num = int(min(np.floor(len(part_obj_j) * 0.5), 20))
+        num = int(min(np.floor(len(part_obj_j) * 0.5), 20))  # 20 # int(min(np.floor(len(part_obj_j)-1), 20))  # int(min(np.floor(len(part_obj_j) * 0.5), 20))  # 20
         if num > 0:
             cut_ub = np.partition(part_obj_j, num)[:num].max()
         else:
             cut_ub = ub
         cut_set = np.where(((int_obj_j > lb) & (int_obj_j <= cut_ub)) |
                            (int_obj_j >= max_ub)
+                           # (int_obj_j >= int_obj)
                            )[0]
+        # if len(cut_set) <= 0:
+        #     cut_set = np.where((int_obj_j >= int_obj)
+        #                        )[0]
     elif cbcut:
-        # cut_set = np.where(float_obj_j > lb)[0]
+        cut_set = np.where(int_obj_j > np.ceil(lb))[0]
         # part_obj_j = int_obj_j[int_obj_j > np.ceil(lb)]
-        part_obj_j = float_obj_j[float_obj_j > lb]
-        num = int(min(len(part_obj_j), 10))  # int(len(part_obj_j))  #
-        if num <= 0:
-            max_ub = np.ceil(lb) + 1
-        else:
-            max_ub = np.partition(part_obj_j, -num)[-num:].min()
-        cut_set = np.where(# ((float_obj_j >= lb) & (float_obj_j <= cut_ub)) |
-                           (float_obj_j >= max_ub)
-                           )[0]
+        # part_obj_j = int_obj_j[int_obj_j > np.ceil(lb)]
+        # num = int(min(len(part_obj_j), 30))  #int(len(part_obj_j))  #
+        # if num <= 0:
+        #     max_ub = np.ceil(lb) + 1
+        # else:
+        #     max_ub = np.partition(part_obj_j, -num)[-num:].min()
+        # cut_set = np.where(# (int_obj_j > lb)
+        #                     (int_obj_j > ub)
+        #                    # (int_obj_j >= max_ub)
+        #                    )[0]
     elif cb:
         # lazycut: All unconstrained cases must be excluded
-        cut_set = np.where((int_obj_j > lb)
+        cut_set = np.where((int_obj_j > ub)
                            )[0]
     else:
         cut_set = range(Cus_n)
@@ -356,9 +362,11 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                     # constr_num += 1
                     # print(f"customer {j}: {w} + lhs >= {Sort_dis[k_th]}")
     # print("add_cut:", time.time() - t_2)
-    if updata > 0:
+    if updata > 0 or (int_obj < ub and int_sol):
         indices = np.transpose(np.where(Cut_index != 0))
         # cut_index = [(x, y) for x, y in indices]
+        d_l = 0
+        d_u = 0
         for a in indices:
             j, k = a[0], a[1]
             constr = MP.getConstrByName(f"cut_{j}_{k}")
@@ -367,14 +375,17 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                 #     if constr.RHS <= lb or constr.RHS > ub:
                 #         MP.remove(constr)
                 #         Cut_index[j, k] = 0
-                if updata >= 2:
-                    if constr.RHS > ub:
-                        MP.remove(constr)
-                        Cut_index[j, k] = 0
+                # if int_obj < ub:  #  updata >= 2:
+                if constr.RHS > min(int_obj, ub): #  and np.any(Cut_index[j, ub_k_ths_js:k]):
+                    MP.remove(constr)
+                    Cut_index[j, k] = 0
+                    d_u += 1
                 # elif updata >= 1:
                 if constr.RHS <= lb:
                     MP.remove(constr)
                     Cut_index[j, k] = 0
+                    d_l += 1
+        print(f"delete lb {d_l}, delete ub {d_u}")
     if not cb and not cbcut:
         MP.update()
     # print(constr_num)
@@ -661,24 +672,27 @@ def call_back(model, where):
         rel_obj, int_obj, _ = add_benders_cut(model, y_val, max(lb, LB), UB, cbcut=True, int_sol=False, updata=0)
 
     # Lazycut
-    # if where == GRB.callback.MIPSOL:
+    if where == GRB.callback.MIPSOL:
     #     var = np.array(model.cbGetSolution(model._vars))
     #     w_val = var[0]
     #     y_val = var[1:]
     #     ub = model.cbGet(GRB.callback.MIPSOL_OBJBST)
-    #     bond = model.cbGet(GRB.callback.MIPSOL_OBJBND)
-    #     LB = max(np.ceil(bond), LB)
+    #     # LB = max(np.ceil(bond), LB)
     #     # UB = min(ub, UB)
-    #     rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cb=True, updata=False, int_sol=True)
-    #     if int_obj < UB:
-    #         UB = int_obj
-    #         y_index = np.argsort(y_val)[-Fac_L: ]
-    #         y_s = np.zeros(Fac_n)
-    #         y_s[y_index] = 1
-    #         solution = np.hstack([np.array(int_obj), y_s]).tolist()
-    #         model.cbSetSolution(model._vars, solution)
-    #     if int_obj <= LB:
-    #         model.terminate()
+    #     if ub > UB:
+    #         rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cb=True, updata=False, int_sol=True)
+    #         if int_obj < UB:
+    #             UB = int_obj
+    #             y_index = np.argsort(y_val)[-Fac_L: ]
+    #             y_s = np.zeros(Fac_n)
+    #             y_s[y_index] = 1
+    #             solution = np.hstack([np.array(int_obj), y_s]).tolist()
+    #             model.cbSetSolution(model._vars, solution)
+    #         if int_obj <= LB:
+    #             model.terminate()
+        bond = model.cbGet(GRB.callback.MIPSOL_OBJBND)
+        if np.ceil(bond) > LB:
+            model.terminate()
 
 
 def cal_sqs_info(dis_m, sort_index):
@@ -727,9 +741,8 @@ def Benders_solve():
     # UB = 100000
 
     org_model.Params.PoolGap = 0.01
-    org_model.setParam('TimeLimit', 10)
+    org_model.setParam('TimeLimit', MP_SOlVE_TIME)
     # org_model.Params.PoolSolutions = 5
-    # org_model.Params.timeLimit = 600
     # org_model.setParam('PreSolve', 2)
     org_model.setParam('OutputFlag', 0)
     # org_model.setParam('LazyConstraints', 1)
@@ -751,7 +764,7 @@ def Benders_solve():
     org_model.addConstr(org_model.getVarByName(f"w") >= LB)
     org_model.update()
     update_model = 0
-    y_val, z_val, facility, lb = solve_MP(org_model) # , callback=call_back)
+    y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
     if lb > LB:
         update_model += 1
         LB = lb
@@ -759,23 +772,24 @@ def Benders_solve():
     # LB = max(LB, lb)
     for m in range(0, org_model.SolCount):
         org_model.Params.SolutionNumber = m
-        pool_obj = org_model.PoolObjVal
+        # pool_obj = org_model.PoolObjVal
         y_star = np.array(org_model.Xn[1:])
         if m == 0:
             for i in range(len(y_star)):
                 org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, y_star[i])
-        # else:
-        #     _, ub, constr_num = add_benders_cut(org_model, y_star, LB, UB, updata=False)
-        #     UB = min(UB, ub)
-        #     print(constr_num)
+            # break
+        else:
+            _, ub, constr_num = add_benders_cut(org_model, y_star, LB, UB, updata=0)
+            UB = min(UB, ub)
+            print(constr_num)
+            break
     # org_model.update()
-
     _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB, updata=update_model)
     update_model = 0
     # print(constr_num)
     # UB = min(UB, ub)
     if ub < UB:
-        update_model += 2
+        # update_model += 2
         UB = ub
     inter = 0
     no_change_cnt = 0
@@ -787,24 +801,26 @@ def Benders_solve():
         print(f' current time cost: time = {time.time() - t_initial}')
         print()
         print(constr_num)
-        y_val, z_val, facility, lb = solve_MP(org_model)  # , callback=call_back)
+        y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
         # LB = max(LB, lb)
         if lb > LB:
             update_model += 1
             LB = lb
             org_model.addConstr(org_model.getVarByName(f"w") >= np.ceil(LB))
             # print(f"add constr: {np.ceil(LB)}")
-        for m in range(0, org_model.SolCount):
+        for m in range(org_model.SolCount):
             org_model.setParam('SolutionNumber', m)
-            pool_obj = org_model.PoolObjVal
+            # pool_obj = org_model.PoolObjVal
             y_star = np.array(org_model.Xn[1:])
             if m == 0:
                 for i in range(len(y_star)):
                     org_model.getVarByName(f"y[{i}]").setAttr(GRB.Attr.Start, y_star[i])
-            # else:
-            #     _, ub, constr_num = add_benders_cut(org_model, y_star, LB, UB, updata=False)
-            #     print(constr_num)
-            #     UB = min(UB, ub)
+                # break
+            else:
+                _, ub, constr_num = add_benders_cut(org_model, y_star, LB, UB, updata=0)
+                print(constr_num)
+                UB = min(UB, ub)
+                break
         # org_model.update()
         _, ub, constr_num = add_benders_cut(org_model, y_val, LB, UB, con_0=no_change_cnt, updata=update_model)
         update_model = 0
@@ -813,7 +829,7 @@ def Benders_solve():
         if ub <= LB:
             UB = LB
         elif ub < UB:
-            update_model += 2
+            # update_model += 2
             UB = ub
         inter += 1
         if constr_num <= 0:
@@ -911,7 +927,7 @@ if __name__ == "__main__":
     data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [20]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
+    fac_number = [5]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
 
     for i in data_sets:
         for f_n in fac_number:
