@@ -8,7 +8,7 @@ import time
 from ultis import get_UB1, get_UB2
 
 # Global variable definition
-MP_SOlVE_TIME = 10  # seconds
+HARD_TIME = 10  # seconds
 Dis_m = None  # distance matrix
 Cus_n = 0  # the number of customers
 Fac_n = 0  # the number of candidate facilities
@@ -50,13 +50,13 @@ def solve_MP(MP, callback=None, print_sol=False):
         MP.optimize()
     if MP.isMIP:
         a = 1
-        while MP.SolCount < 1 and a < 20:
+        while MP.SolCount < 1 and a < 10 and MP.ObjBound <= LB:
             print("cannot find feasible solution!")
-            MP.setParam('TimeLimit', 30 * a)
+            MP.setParam('TimeLimit', HARD_TIME * a)
             MP.optimize()
             a += 1
         if a > 1:
-            MP.setParam('TimeLimit', MP_SOlVE_TIME)
+            MP.setParam('TimeLimit', HARD_TIME)
         MP.Params.SolutionNumber = 0
         lb = MP.ObjVal
         if MP.Status != 2:
@@ -77,7 +77,7 @@ def solve_MP(MP, callback=None, print_sol=False):
     return y_val, w_val, facility, lb
 
 
-def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.1):
+def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.):
     t_initial = time.time()
     int_UB = UB1
     # global LB, UB
@@ -105,6 +105,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.1):
     print('\n\n ============================================')
     print(' Benders Decomposition Starts ')
     print('============================================')
+    no_improve = 0
     while UB - np.ceil(LB) >= 1 and Gap > eps:  # not (Gap <= eps):
         # print(f'Iter: {benders_iter} iteration facility: {facility}')
         # print(len(facility))
@@ -124,6 +125,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.1):
         # print(time.time() - t_start)
         if LB < low_bound:
             LB = low_bound
+            no_improve = 0
             # no_change_cnt = 1
         # print(f'Iter: {benders_iter}, MP time cost: time = {time.time() - t_start}')
 
@@ -139,6 +141,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.1):
         # print()
         # assert self.Gap >= -1e-5
         benders_iter += 1
+        no_improve += 1
         # no_change_cnt += 1
         # if no_change_cnt >= 4:
         #     break
@@ -147,6 +150,8 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=0.1):
         elif constr_num > 0:
             no_change_cnt = 0
         if no_change_cnt >= 2:
+            break
+        if no_improve > 5 and Gap < 10:  # The lower bound is not improved
             break
 
         # if Gap < 1.5:
@@ -233,8 +238,10 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
     float_obj_j = int_obj_j - np.sum(np.multiply(a_matrix, y_sort), axis=1)
     float_obj = np.max(float_obj_j)
     if not int_sol and not cbcut:
-        part_obj_j = float_obj_j[float_obj_j > lb]  #= np.ceil(lb)]
+        part_obj_j = float_obj_j[float_obj_j > lb]  #= np.ceil(lb + 0.00001)]
         num = int(min(np.ceil(len(part_obj_j) * 0.1), 10))   # 10
+        if num <= 0:
+            return float_obj, int_obj, constr_num
         max_ub = np.partition(part_obj_j, -num)[-num:].min()
 
         part_obj_j = part_obj_j[part_obj_j <= min(ub, relax_ub)]
@@ -376,7 +383,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                 #         MP.remove(constr)
                 #         Cut_index[j, k] = 0
                 # if int_obj < ub:  #  updata >= 2:
-                if constr.RHS > min(int_obj, ub): #  and np.any(Cut_index[j, ub_k_ths_js:k]):
+                if constr.RHS > min(int_obj, ub):  #  and np.any(Cut_index[j, ub_k_ths_js:k]):
                     MP.remove(constr)
                     Cut_index[j, k] = 0
                     d_u += 1
@@ -670,26 +677,39 @@ def call_back(model, where):
         w_val = var[0]
         # if w_val <= lb:
         rel_obj, int_obj, _ = add_benders_cut(model, y_val, max(lb, LB), UB, cbcut=True, int_sol=False, updata=0)
+    # softtime
+    # if where == GRB.Callback.MIP:
+    if where == GRB.callback.MIPSOL:
+        # runtime = model.cbGet(GRB.Callback.RUNTIME)
+        # objbst = model.cbGet(GRB.Callback.MIPSOL_OBJBST)
+        # objbnd = model.cbGet(GRB.Callback.MIPSOL_OBJBND)
+        # # gap = abs((objbst - np.ceil(objbnd)) / objbst)
+        # if np.ceil(objbnd) > LB and runtime >= 10.:
+        #     model.terminate()
+        # elif runtime >= 50.:
+        #     model.terminate()
+        # elif objbst - np.ceil(objbnd) < 1:
+        #     model.terminate()
 
     # Lazycut
-    if where == GRB.callback.MIPSOL:
-    #     var = np.array(model.cbGetSolution(model._vars))
-    #     w_val = var[0]
-    #     y_val = var[1:]
-    #     ub = model.cbGet(GRB.callback.MIPSOL_OBJBST)
-    #     # LB = max(np.ceil(bond), LB)
-    #     # UB = min(ub, UB)
-    #     if ub > UB:
-    #         rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cb=True, updata=False, int_sol=True)
-    #         if int_obj < UB:
-    #             UB = int_obj
-    #             y_index = np.argsort(y_val)[-Fac_L: ]
-    #             y_s = np.zeros(Fac_n)
-    #             y_s[y_index] = 1
-    #             solution = np.hstack([np.array(int_obj), y_s]).tolist()
-    #             model.cbSetSolution(model._vars, solution)
-    #         if int_obj <= LB:
-    #             model.terminate()
+    # if where == GRB.callback.MIPSOL:
+    # #     var = np.array(model.cbGetSolution(model._vars))
+    # #     w_val = var[0]
+    # #     y_val = var[1:]
+    # #     ub = model.cbGet(GRB.callback.MIPSOL_OBJBST)
+    # #     # LB = max(np.ceil(bond), LB)
+    # #     # UB = min(ub, UB)
+    # #     if ub > UB:
+    # #         rel_obj, int_obj, _ = add_benders_cut(model, y_val, LB, UB, cb=True, updata=False, int_sol=True)
+    # #         if int_obj < UB:
+    # #             UB = int_obj
+    # #             y_index = np.argsort(y_val)[-Fac_L: ]
+    # #             y_s = np.zeros(Fac_n)
+    # #             y_s[y_index] = 1
+    # #             solution = np.hstack([np.array(int_obj), y_s]).tolist()
+    # #             model.cbSetSolution(model._vars, solution)
+    # #         if int_obj <= LB:
+    # #             model.terminate()
         bond = model.cbGet(GRB.callback.MIPSOL_OBJBND)
         if np.ceil(bond) > LB:
             model.terminate()
@@ -736,12 +756,12 @@ def Benders_solve():
     print(LB, UB)
     LB_0, UB_0 = Benders_Decomposition(org_model, UB, LB)
     LB, UB = LB_0, UB_0
-    # LB_0 = LB
+    LB_0 = LB
     # LB = 0
     # UB = 100000
 
     org_model.Params.PoolGap = 0.01
-    org_model.setParam('TimeLimit', MP_SOlVE_TIME)
+    org_model.setParam('TimeLimit', HARD_TIME)
     # org_model.Params.PoolSolutions = 5
     # org_model.setParam('PreSolve', 2)
     org_model.setParam('OutputFlag', 0)
@@ -793,7 +813,7 @@ def Benders_solve():
         UB = ub
     inter = 0
     no_change_cnt = 0
-    while abs(UB - LB) / (LB + 0.001) > 0.0001:
+    while abs(UB - LB) / (LB + 0.001) > 0.01:
         Gap = round(100 * (UB - LB) / (LB + 0.0001), 4)
         print(' %7.2f ' % LB, end='')
         print(' %7.2f ' % UB, end='')
@@ -841,6 +861,7 @@ def Benders_solve():
     print()
     # print(facility)
     return UB, LB, opt_time, inter, LB_0
+    # return UB, LB, opt_time, 0, 0
 
 
 def load_data(data_type, data_set=None, fac_n=None):
@@ -922,12 +943,13 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 2
+    data_type = 3
     # data_sets = range(1, 41)
-    data_sets = ["u1817"]  # ["rat575","pcb1173", "u1060", "dsj1000"]
-    # data_sets = [10, 20, 30, 40, 50]
+    # data_sets = ["fnl4461"]
+    # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
+    data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [5]  # [5, 10, 20, 50, 100, 200, 300, 400, 500]
+    fac_number = [5]  # [5, 10, 100, 200, 300, 400, 500]
 
     for i in data_sets:
         for f_n in fac_number:
@@ -945,6 +967,8 @@ if __name__ == "__main__":
 
             # Solve the original MIP model
             # UB, opt_time = solve_MIP()
+            # inter = 0
+            # LB_0 = LB
 
             # IBD algorithm
             UB, LB, opt_time, inter, LB_0 = Benders_solve()
