@@ -8,7 +8,7 @@ import time
 from ultis import get_UB1, get_UB2
 
 # Global variable definition
-HARD_TIME = 10  # seconds
+HARD_TIME = 20  # seconds
 Dis_m = None  # distance matrix
 Cus_n = 0  # the number of customers
 Fac_n = 0  # the number of candidate facilities
@@ -943,7 +943,7 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 3
+    data_type = 5
     # data_sets = range(1, 41)
     # data_sets = ["fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
