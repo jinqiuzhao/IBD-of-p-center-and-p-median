@@ -287,8 +287,8 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         #                    )[0]
     elif cb:
         # lazycut: All unconstrained cases must be excluded
-        cut_set = np.where((int_obj_j > ub)
-                           )[0]
+        cut_set = np.where((int_obj_j > ub))[0]
+        # cut_set = np.where(int_obj_j > np.ceil(lb))[0]
     else:
         cut_set = range(Cus_n)
     # print("numpy:", time.time() - t_1)
@@ -821,6 +821,9 @@ def Benders_solve():
         print(f' current time cost: time = {time.time() - t_initial}')
         print()
         print(constr_num)
+        # if Gap < 0.1:
+        #     y_val, z_val, facility, lb = solve_MP(org_model)
+        # else:
         y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
         # LB = max(LB, lb)
         if lb > LB:
@@ -943,11 +946,11 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 5
-    # data_sets = range(1, 41)
-    # data_sets = ["fnl4461"]
+    data_type = 1
+    data_sets = range(1, 41)
+    # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
-    data_sets = [10, 20, 30, 40, 50]
+    # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
     fac_number = [5]  # [5, 10, 100, 200, 300, 400, 500]
 
