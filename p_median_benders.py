@@ -16,6 +16,8 @@ Fac_L = 0  # the number of facilities selected
 Sort_dis_index = None  # the sorted distance index
 Sqs_index = None  # sorting result
 Cut_index = None  # cuts recorder
+Sort_dis = None
+Cut_pool = []  # cuts set
 
 
 def build_MP(int_sol=False):
@@ -134,7 +136,7 @@ def build_original_MIP():
     return org_model
 
 
-def add_benders_cut(MP, y_val, z_val, cb=False, cbcut=False, count=True):
+def add_benders_cut1(MP, y_val, z_val, cb=False, cbcut=False, count=True):
     y = [MP.getVarByName(f"y[{i}]") for i in range(Fac_n)]
     z = [MP.getVarByName(f"z[{j}]") for j in range(Cus_n)]
     obj = 0
@@ -168,6 +170,43 @@ def add_benders_cut(MP, y_val, z_val, cb=False, cbcut=False, count=True):
     if not cb and not cbcut:
         MP.update()
     return obj
+
+
+def add_benders_cut(MP, y_val, z_val, cb=False, cbcut=False, count=True):
+    y = [MP.getVarByName(f"y[{i}]") for i in range(Fac_n)]
+    z = [MP.getVarByName(f"z[{j}]") for j in range(Cus_n)]
+    y_dis = np.take_along_axis(Dis_m, Sort_dis_index, axis=1)
+    y_sort = y_val[Sort_dis_index]
+    y_cumsum = np.cumsum(y_sort, axis=1)
+    k_js = np.argmax(y_cumsum >= 1, axis=1)
+    # vir_fac = set(Sort_dis_index[np.arange(len(k_js)), k_js])
+    int_obj_j = Dis_m[np.arange(Dis_m.shape[0]), Sort_dis_index[np.arange(Sort_dis_index.shape[0]), k_js]]
+    int_obj = np.sum(int_obj_j)
+    k_ths_js = np.searchsorted(Sort_dis, int_obj_j)
+    a_matrix = int_obj_j[:, np.newaxis] - y_dis
+    a_matrix[a_matrix < 0] = 0
+    float_obj_j = int_obj_j - np.sum(np.multiply(a_matrix, y_sort), axis=1)
+    float_obj = np.sum(float_obj_j)
+    cut_set = np.where((float_obj_j > z_val))[0]
+    for j in cut_set:
+        k = k_js[j]
+        k_th = k_ths_js[j]
+        if k <= 0 and Cut_index[j, k_th] > 0:
+            continue
+        a_cof = a_matrix[j, :]
+        # a_cof[a_cof > (Sort_dis[k_th] - np.ceil(lb))] = Sort_dis[k_th] - np.ceil(lb)
+        lhs = quicksum(a_cof[m] * y[Sort_dis_index[j, m]] for m in range(k) if a_cof[m] > 0)
+        if z_val[j] < Sort_dis[k_th]:
+            if cb:
+                MP.cbLazy(z[j] + lhs >= Sort_dis[k_th])
+            elif cbcut:
+                MP.cbCut(z[j] + lhs >= Sort_dis[k_th])
+            else:
+                MP.addConstr(z[j] + lhs >= Sort_dis[k_th])
+                Cut_index[j, k_th] = 1
+    if not cb and not cbcut:
+        MP.update()
+    return float_obj
 
 
 def build_SP(j, y_val=None):
@@ -398,10 +437,13 @@ if __name__ == "__main__":
     for i in data_sets:
         instance = load_data(data_type, data_set=i)
         Dis_m = instance.dis_matrix
+        std = np.std(Dis_m)
+        mean = np.mean(Dis_m)
         Cus_n = instance.customer_num
         Fac_n = instance.facility_num
-        Cut_index = np.zeros((Cus_n, Fac_n), dtype=int)
-        Sort_dis_index = np.argsort(Dis_m, axis=0)
+        Sort_dis_index = np.argsort(Dis_m, axis=1)
+        Sort_dis = np.sort(np.unique(Dis_m.flatten()))
+        Cut_index = np.zeros((Cus_n, len(Sort_dis)), dtype=int)  # len(Sort_dis))
         # Sqs_index = cal_sqs_info(Dis_m, Sort_dis_index)
         t_initial = time.time()
 
