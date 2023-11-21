@@ -20,11 +20,15 @@ def get_UB1(dis_matrix, fac_L):
         f_set.append(max_dis_index)
         # dis_matrix[r, :] = 0
     # b = np.min(dis_matrix[:, list(f_set)], axis=1)
-    obj = np.max(np.min(dis_matrix[:, list(f_set)], axis=1))
+    # obj = np.max(np.min(dis_matrix[:, list(f_set)], axis=1))
+    sub_matrix = dis_matrix[:, list(f_set)]
+    min_two = np.partition(sub_matrix, 1, axis=1)[:, :2]
+    min_two_sum = np.sum(min_two, axis=1)
+    obj = np.max(min_two_sum)
     return obj, f_set
 
 
-def get_UB2(dis_m, fac_l):
+def get_UB2(dis_m, fac_l):  # 未修改
     UB1, f_set = get_UB1(dis_m, fac_l)
     best_obj = UB1
     # min_dis = np.argmin(dis_m[:, list(f_set)], axis=1)
