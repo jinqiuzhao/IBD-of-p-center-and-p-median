@@ -236,8 +236,8 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
     if int_obj <= np.ceil(lb) and int_sol:
         return int_obj, int_obj, constr_num
     k_ths_js = np.searchsorted(Sort_dis, int_obj_j2)
-    ub_k_js = np.argmax(y_dis >= np.ceil(min(ub, relax_ub)/2), axis=1)
-    ub_k_ths_js = min(np.searchsorted(Sort_dis, np.ceil(min(ub, relax_ub))/2), len(Sort_dis)-1)
+    ub_k_js = np.argmax(y_dis >= np.ceil(min(ub, relax_ub)), axis=1)
+    ub_k_ths_js = min(np.searchsorted(Sort_dis, np.ceil(min(ub, relax_ub))), len(Sort_dis)-1)
     # if not cbcut:
     #     y_dis[y_dis < np.ceil(lb/2)] = np.ceil(lb/2)  # This modifies the original problem, but does not affect the integer solution
     a_matrix = int_obj_j2[:, np.newaxis] - y_dis
@@ -323,6 +323,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         # if j == 46:
         #     adf = 10
         # if int_obj_j[j] <= min(ub, relax_ub) or float_obj_j[j] <= min(ub, relax_ub):  # 2 * int_obj_j2[j] <= min(ub, relax_ub) or
+        # if j <= ub_k_js[j] and ub_k_js[j] >= 1:
         k = k_js2[j]
         k_th = k_ths_js[j]
         if k <= 0 and Cut_index[j, k_th] > 0:
@@ -367,7 +368,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
             else:
                 # MP.addConstr(w + lhs >= 2 * Sort_dis[k_th], name="cut_" + str(j) + "_" + str(k_th))
                 MP.addConstr(w + lhs >= 2 * int_obj_j2[j], name="cut_" + str(j) + "_" + str(k_th))
-                print(f"customer {j}: {w} + {lhs} >= {2 * int_obj_j2[j]}")
+                # print(f"customer {j}: {w} + {lhs} >= {2 * int_obj_j2[j]}")
                 # if MP_int is None:
                 constr_num += 1
                 Cut_index[j, k_th] = 1
@@ -397,6 +398,7 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                 #         MP.remove(constr)
                 #         Cut_index[j, k] = 0
                 # if int_obj < ub:  #  updata >= 2:
+                # 这个不删除，效果更好？
                 if constr.RHS > min(int_obj, ub) and np.any(Cut_index[j, ub_k_ths_js:k]):
                     MP.remove(constr)
                     Cut_index[j, k] = 0
@@ -962,7 +964,7 @@ if __name__ == "__main__":
 
         """
     data_type = 1
-    data_sets = range(1, 10)  # range(1, 41)
+    data_sets = [24]  # range(21, 31)  # range(1, 41) [13]
     # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
     # data_sets = [10, 20, 30, 40, 50]
