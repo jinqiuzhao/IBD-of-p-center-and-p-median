@@ -16,6 +16,7 @@ class Loc_Data:
         self.facility_num = f_num  # 设施潜在位置
         self.f_limit = p  # 需要选择的设施数量
         self.customer_num = cus_num
+        self.coordinate = None
 
     def generate_instance(self, seed=0, fac_same=True):
         path = f'data/random_instance_{self.customer_num}_{self.f_limit}.npy'
@@ -191,9 +192,9 @@ class Loc_Data:
         self.customer_num = self.dis_matrix.shape[1]
         return 0
 
-    def read_tsp(self, path='data/tsp/a280'):
+    def read_tsp(self, path='data/tsp/a280', read_file=False):
         path1 = path + '.npy'
-        if not os.path.isfile(path1):
+        if not os.path.isfile(path1) or read_file:
             path1 = path + '.tsp'
             problem = tsplib95.load(path1)
             # b = list(problem.get_nodes())
@@ -201,7 +202,9 @@ class Loc_Data:
             self.facility_num = self.customer_num
             self.f_limit = 0
             self.dis_matrix = np.ones((self.customer_num, self.customer_num)) * np.inf
+            self.coordinate = []
             for i in range(self.facility_num):
+                self.coordinate.append(problem.node_coords[i+1])
                 for j in range(self.customer_num):
                     if i == j:
                         self.dis_matrix[i, j] = 0

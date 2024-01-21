@@ -6,6 +6,8 @@ import pandas as pd
 from gurobipy import *
 import time
 from ellipse_ultis import get_UB1, get_UB2
+from visualize import Visualize
+from felxible_test import Test
 
 # Global variable definition
 HARD_TIME = 10  # seconds
@@ -308,44 +310,48 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         # if j <= ub_k_js[j] and ub_k_js[j] >= 1:
         k = k_js2[j]
         k_th = k_ths_js[j]
+        # if int_sol and not cb:
+        # while 2 * y_dis[j, k-1] >= min(ub, relax_ub): # + y_dis[j, k-2]
+        #     k = k-1
+        #     k_th = np.searchsorted(Sort_dis, y_dis[j, k])
         if k <= 0 or Cut_index[j, k_th] > 0:
-            # continue
-            if int_sol and not cb and int_obj_j[j] >= ub:
-                lhs5 = quicksum(a_matrix[j, m] * y[Sort_dis_index[j, m]] for m in range(k_js2[j]) if
-                                a_matrix[j, m] > 0 and m != k_js1[j])
-                MP.addConstr(w + lhs5 >= int_obj_j[j],
-                             name="cut_0" + str(j) + "_" + str(k_js2[j]) + "_" + str(k_js1[j]))
-                # print(f"XXXXXcustomer {j}: {w} + {lhs5} >= {int_obj_j[j]}")
-                # k = k_js2[j] - 1
-                # k_th = np.searchsorted(Sort_dis, y_dis[j, k])
-                # while y_dis[j, k] >= int_obj_j2[j] and Cut_index[j, k_th] > 0 and 2 * y_dis[j, k] >= ub:
-                #     k = k - 1
-                #     k_th = np.searchsorted(Sort_dis, y_dis[j, k])
-                # if k > 0 and Cut_index[j, k_th] <= 0 and 2 * y_dis[j, k] > ub:  # np.ceil(lb):
-                #     lhs3 = quicksum((y_dis[j, k] - y_dis[j, m]) * y[Sort_dis_index[j, m]] for m in range(k) if
-                #                     (y_dis[j, k] - y_dis[j, m]) > 0)
-                #     MP.addConstr(w + lhs3 >= 2 * y_dis[j, k], name="cut_" + str(j) + "_" + str(k_th))
-                #     Cut_index[j, k_th] = 1
-                #     print(f"customer {j}: {w} + {lhs3} >= {2 * y_dis[j, k]}")
-                #     # if int_obj_j[j] > np.ceil(lb) and int_sol and not cb:
-                #     #     lhs3 = quicksum(int(y_val[m]) * y[m] for m in range(Fac_n) if int(y_val[m]) > 0.5)
-                #     #     MP.addConstr(w >= int_obj_j[j] * (lhs3 - int(sum(y_val)) + 1), name="cut_0_" + str(j) + "_" + str(k_th))
-                #     #     print(f"XXXcustomer {j}: {w} >= ({lhs3 - sum(y_val) + 1}) * {int_obj_j[j]}")
             continue
+            # if int_sol and not cb and int_obj_j[j] >= ub:
+            #     lhs5 = quicksum(a_matrix[j, m] * y[Sort_dis_index[j, m]] for m in range(k_js2[j]) if
+            #                     a_matrix[j, m] > 0 and m != k_js1[j])
+            #     MP.addConstr(w + lhs5 >= int_obj_j[j],
+            #                  name="cut_0" + str(j) + "_" + str(k_js2[j]) + "_" + str(k_js1[j]))
+            #     # print(f"XXXXXcustomer {j}: {w} + {lhs5} >= {int_obj_j[j]}")
+            #     # k = k_js2[j] - 1
+            #     # k_th = np.searchsorted(Sort_dis, y_dis[j, k])
+            #     # while y_dis[j, k] >= int_obj_j2[j] and Cut_index[j, k_th] > 0 and 2 * y_dis[j, k] >= ub:
+            #     #     k = k - 1
+            #     #     k_th = np.searchsorted(Sort_dis, y_dis[j, k])
+            #     # if k > 0 and Cut_index[j, k_th] <= 0 and 2 * y_dis[j, k] > ub:  # np.ceil(lb):
+            #     #     lhs3 = quicksum((y_dis[j, k] - y_dis[j, m]) * y[Sort_dis_index[j, m]] for m in range(k) if
+            #     #                     (y_dis[j, k] - y_dis[j, m]) > 0)
+            #     #     MP.addConstr(w + lhs3 >= 2 * y_dis[j, k], name="cut_" + str(j) + "_" + str(k_th))
+            #     #     Cut_index[j, k_th] = 1
+            #     #     print(f"customer {j}: {w} + {lhs3} >= {2 * y_dis[j, k]}")
+            #     #     # if int_obj_j[j] > np.ceil(lb) and int_sol and not cb:
+            #     #     #     lhs3 = quicksum(int(y_val[m]) * y[m] for m in range(Fac_n) if int(y_val[m]) > 0.5)
+            #     #     #     MP.addConstr(w >= int_obj_j[j] * (lhs3 - int(sum(y_val)) + 1), name="cut_0_" + str(j) + "_" + str(k_th))
+            #     #     #     print(f"XXXcustomer {j}: {w} >= ({lhs3 - sum(y_val) + 1}) * {int_obj_j[j]}")
+            # continue
 
         a_cof = a_matrix[j, :]
         # a_cof[a_cof > (Sort_dis[k_th] - np.ceil(lb))] = Sort_dis[k_th] - np.ceil(lb)
-        lhs = quicksum(a_cof[m] * y[Sort_dis_index[j, m]] for m in range(k) if a_cof[m] > 0)
+        lhs = quicksum((y_dis[j, k] - y_dis[j, m]) * y[Sort_dis_index[j, m]] for m in range(k) if (y_dis[j, k] - y_dis[j, m]) > 0)
         # if int_sol and not cb:
         #     lhs5 = quicksum(a_cof[m] * y[Sort_dis_index[j, m]] for m in range(k) if a_cof[m] > 0 and m != k_js1[j])
         # if k_js2[j] - k_js1[j] <= 1:
         #     lhs_enhanced = quicksum(
         #         a_cof[m] * y[Sort_dis_index[j, m]]for m in range(k_js1[j]) if
         #         a_cof[m] > 0)
-        if int_sol and not cb and k_js1[j] >= 2 and 2 * int_obj_j1[j] >= ub:  # > lb: #
-            lhs_enhanced = quicksum((int_obj_j1[j] - y_dis[j, m]) * y[Sort_dis_index[j, m]] for m in range(k_js1[j]) if (int_obj_j1[j] - y_dis[j, m]) > 0)
+        # if int_sol and not cb and k_js1[j] >= 2 and 2 * int_obj_j1[j] >= ub:  # > lb: #
+        #     lhs_enhanced = quicksum((int_obj_j1[j] - y_dis[j, m]) * y[Sort_dis_index[j, m]] for m in range(k_js1[j]) if (int_obj_j1[j] - y_dis[j, m]) > 0)
         if MP_int is not None:
-            lhs2 = quicksum(a_matrix[j, m] * y_1[Sort_dis_index[j, m]] for m in range(k) if a_cof[m] > 0)
+            lhs2 = quicksum((y_dis[j, k] - y_dis[j, m]) * y_1[Sort_dis_index[j, m]] for m in range(k) if (y_dis[j, k] - y_dis[j, m]) > 0)
 
         # else:
         #     if ub_k_js[j] <= 0:
@@ -367,56 +373,58 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         #         lhs2 = quicksum((a_matrix[j, m] - dif) * y_1[Sort_dis_index[j, m]] for m in range(k) if a_cof[m] > 0)
 
         # if 2 * int_obj_j2[j] > np.ceil(lb):  # and (obj == obj_j or obj_j > ub):  # k > 0 and Cut_index[j, k_th] == 0 and
-        if int_obj_j[j] > np.ceil(lb):  # 2 * int_obj_j2[j] > np.ceil(lb):
+        if int_obj_j[j] > np.ceil(lb): # 2 * y_dis[j, k] > np.ceil(lb): #   # 2 * y_dis[j, k] > np.ceil(lb):  #
             if cb:
                 if Cut_index[j, k_th] == 0:
-                    MP.cbLazy(w + lhs >= 2 * int_obj_j2[j]) # 2 * Sort_dis[k_th])
+                    MP.cbLazy(w + lhs >= 2 * y_dis[j, k]) # 2 * Sort_dis[k_th])
                     # Cut_index[j, k_th] = 1
                 # Cut_index[j, k_th] = 1
                 # print(f"customer {j}: {w} + {lhs} >= {c_dis[sort_index[k]]}")
             elif cbcut:
                 if Cut_index[j, k_th] == 0:
                     # if Sort_dis[k_th] >= max(float_obj, ub):  # obj_j > lb:   #  and obj >= ub:  # obj_j:
-                    MP.cbCut(w + lhs >= 2 * int_obj_j2[j])   #Sort_dis[k_th])
+                    MP.cbCut(w + lhs >= 2 * y_dis[j, k])   #Sort_dis[k_th])
                 # print(f"customer {j}: {w} + {lhs} >= {int_obj_j[j]}")
             else:
                 # MP.addConstr(w + lhs >= 2 * Sort_dis[k_th], name="cut_" + str(j) + "_" + str(k_th))
 
-                MP.addConstr(w + lhs >= int_obj_j2[j] * 2, name="cut_" + str(j) + "_" + str(k_th))
+                MP.addConstr(w + lhs >= y_dis[j, k] * 2, name="cut_" + str(j) + "_" + str(k_th))
                 # if int_sol and not cb:
                 #     MP.addConstr(w + lhs5 >= int_obj_j[j], name="cut_0" + str(j) + "_" + str(k_th))
                 # if k_js2[j] - k_js1[j] <= 1:
                 #     MP.addConstr(w + lhs_enhanced >= int_obj_j[j], name="cut_0_" + str(j) + "_" + str(k_th))
                 #     print(f"XXXXXcustomer {j}: {w} + {lhs_enhanced} >= {int_obj_j[j]}")
-                if int_sol and not cb and k_js1[j] >= 2 and 2 * int_obj_j1[j] >= ub:  # > lb: #
-                    k_th2 = np.searchsorted(Sort_dis, int_obj_j1[j])
-                    MP.addConstr(w + lhs_enhanced >= 2 * int_obj_j1[j], name="cut_" + str(j) + "_" + str(k_th))
-                    # print(f"11111customer {j}: {w} + {lhs_enhanced} >= {2 * int_obj_j1[j]}")
-                    constr_num += 1
-                    Cut_index[j, k_th2] = 1
+                # if int_sol and not cb and k_js1[j] >= 2 and 2 * int_obj_j1[j] >= ub:  # > lb: #
+                #     k_th2 = np.searchsorted(Sort_dis, int_obj_j1[j])
+                #     MP.addConstr(w + lhs_enhanced >= 2 * int_obj_j1[j], name="cut_" + str(j) + "_" + str(k_th))
+                #     # print(f"11111customer {j}: {w} + {lhs_enhanced} >= {2 * int_obj_j1[j]}")
+                #     constr_num += 1
+                #     Cut_index[j, k_th2] = 1
                 # print(f"customer {j}: {w} + {lhs} >= {2 * int_obj_j2[j]}")
                 # if MP_int is None:
                 constr_num += 1
                 Cut_index[j, k_th] = 1
                 # print(f"customer {j}: {w} + {lhs} >= {Sort_dis[k_th]}")
                 # if MP_int is not None and np.ceil(lb) < 2 * int_obj_j2[j] <= ub:
-                if MP_int is not None and np.ceil(lb) < int_obj_j[j] <= ub:
+                if MP_int is not None and np.ceil(lb) < int_obj_j[j]:  #  <= ub:
                     # if MP_int is not None and np.ceil(lb) < int_obj_j[j] < ub:
                     # max(ub - constr_num, np.ceil(lb) + 1): # max(relax_ub, np.ceil(lb) + 1):
                     # and c_dis[sort_index[k]] > lb:  # and (ub-mp_obj)/(mp_obj+0.0001) <= 100:
                     # MP_int.addConstr(w_1 + lhs2 >= 2 * Sort_dis[k_th], name="cut_" + str(j) + "_" + str(k_th))
-                    MP_int.addConstr(w_1 + lhs2 >= 2 * int_obj_j2[j], name="cut_" + str(j) + "_" + str(k_th))
+                    MP_int.addConstr(w_1 + lhs2 >= 2 * y_dis[j, k], name="cut_" + str(j) + "_" + str(k_th))
                     # print("add")
                     # Cut_index[j, k_th] = 1
                     # constr_num += 1
                     # print(f"customer {j}: {w} + {lhs2} >= {2 * int_obj_j2[j]}")
     if constr_num <= 0 and int_sol and not cb and ub - lb <= 1:  # constr_num <= 0 and
-        cut_set = np.where(int_obj_j >= lb)[0]
+        cut_set = np.where(int_obj_j > lb)[0]
         for j in cut_set:
             lhs5 = quicksum(a_matrix[j, m] * y[Sort_dis_index[j, m]] for m in range(k_js1[j]) if a_matrix[j, m] > 0 and m != k_js1[j])
             MP.addConstr(w + lhs5 >= int_obj_j[j], name="cut_0" + str(j) + "_" + str(k_js2[j]) + "_" + str(k_js1[j]))
             print(f"XXXXXcustomer {j}: {w} + {lhs5} >= {int_obj_j[j]}")
-            updata = 1
+            # updata = 1
+        # cut_set = np.where(int_obj_j <= lb)[0]
+
     if updata > 0 or (int_obj < ub and int_sol):
         indices = np.transpose(np.where(Cut_index != 0))
         # cut_index = [(x, y) for x, y in indices]
@@ -439,20 +447,20 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
                 # elif updata >= 1:
 
                 # 获得约束中非零系数的最小值
-                linExpr = MP.getRow(constr)
-                min_coeff = GRB.INFINITY
-                for i in range(linExpr.size()):
-                    coeff = linExpr.getCoeff(i)
-                    if coeff != 0 and coeff < min_coeff:
-                        min_coeff = coeff
-                if constr.RHS - min_coeff >= min(int_obj, ub):
-                    for d_k in range(k+1, len(Cut_index[j,:])):
-                        if Cut_index[j, d_k] > 0:
-                            delet_constr = MP.getConstrByName(f"cut_{j}_{d_k}")
-                            if delet_constr is not None:
-                                MP.remove(delet_constr)
-                                Cut_index[j, d_k] = 0
-                                d_u += 1
+                # linExpr = MP.getRow(constr)
+                # min_coeff = GRB.INFINITY
+                # for i in range(linExpr.size()):
+                #     coeff = linExpr.getCoeff(i)
+                #     if coeff != 0 and coeff < min_coeff:
+                #         min_coeff = coeff
+                # if constr.RHS >= 2 * min(int_obj, ub):  # - min_coeff
+                #     for d_k in range(k+1, len(Cut_index[j,:])):
+                #         if Cut_index[j, d_k] > 0:
+                #             delet_constr = MP.getConstrByName(f"cut_{j}_{d_k}")
+                #             if delet_constr is not None:
+                #                 MP.remove(delet_constr)
+                #                 Cut_index[j, d_k] = 0
+                #                 d_u += 1
                 if constr.RHS <= lb:
                     MP.remove(constr)
                     Cut_index[j, k] = 0
@@ -805,7 +813,13 @@ def solve_MIP():
     # orig_model.setParam('PreCrush', 1)
     # orig_model.optimize(call_back_lazy)
     UB = orig_model.ObjVal
-    return UB, opt_time
+
+    y_val = np.zeros(Fac_n)
+    for i in range(Fac_n):
+        y_val[i] = orig_model.getVarByName(f"y[{i}]").x
+    facility = np.argpartition(y_val, -Fac_L)[-Fac_L:]
+
+    return UB, opt_time, facility
 
 
 def Benders_solve():
@@ -833,7 +847,7 @@ def Benders_solve():
     # org_model.setParam('PreSolve', 2)
     org_model.setParam('OutputFlag', 0)
     # org_model.setParam('LazyConstraints', 1)
-    org_model.setParam('MIPFocus', 2)  # 3 优化边界
+    org_model.setParam('MIPFocus', 3)  # 3 优化边界
     # org_model.setParam('Method', 0)
     org_model.setParam('PreCrush', 1)
     # org_model.setParam('RINS', 2500)
@@ -935,9 +949,11 @@ def Benders_solve():
         no_change_cnt += 1
         if no_change_cnt >= 1:
             org_model.setParam('TimeLimit', HARD_TIME * np.ceil(no_change_cnt / 2))
+        org_model.setParam('OutputFlag', 0)
         if constr_num <= 0:
             # no_change_cnt += 1
             org_model.setParam('TimeLimit', 3600)
+            # org_model.setParam('MIPFocus', 3)
             org_model.setParam('OutputFlag', 1)
         # elif constr_num > 0:
         #     no_change_cnt = 0
@@ -945,11 +961,11 @@ def Benders_solve():
             break
     print()
     # print(facility)
-    return UB, LB, opt_time, inter, LB_0
+    return UB, LB, opt_time, inter, LB_0, facility
     # return UB, LB, opt_time, 0, 0
 
 
-def load_data(data_type, data_set=None, fac_n=None):
+def load_data(data_type, data_set=None, fac_n=None, read_file=False):
     """
     data_type:
         1: p-med dataset，data_set in range(1, 41)
@@ -973,7 +989,7 @@ def load_data(data_type, data_set=None, fac_n=None):
     elif data_type == 2:
         data_path = f"data/tsp/{data_set}"  # u1060 rl1304，u1817"   # "pcb1173
         instance = Loc_Data()
-        instance.read_tsp(data_path)
+        instance.read_tsp(data_path, read_file)
         if fac_n is not None:
             Fac_L = fac_n
         else:
@@ -1014,7 +1030,7 @@ def load_data(data_type, data_set=None, fac_n=None):
 
 
 if __name__ == "__main__":
-    df = pd.DataFrame(columns=["pmed No.", "Fac_n", "Optima", "LB", "opt_time", "total_time", "Iter_num", "LB_0"])
+    df = pd.DataFrame(columns=["pmed No.", "Fac_n", "Optima", "LB", "opt_time", "total_time", "Iter_num", "LB_0", "min_max"])
     result = []
     iter_num = []
     time_spend = []
@@ -1028,17 +1044,29 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 1
-    data_sets = [33] # range(31, 41)  # range(1, 41) [13]
+    data_type = 2
+    data_sets = ['rat99']  # range(1, 41)  # ['rat99']  # [8] # range(1, 41) #["st70"]  # [5] # range(37, 41)  # range(1, 41) [13]
     # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [5]  # [5, 10, 100, 200, 300, 400, 500]
+    fac_number = [6]  # [5, 10, 100, 200, 300, 400, 500]
+    # d_radio = [0.1, 0.2, 0.25]  # 柔性测试破坏介个点
+    # for i in d_radio:
+    #     df[f"d_radio_{i}"] = None
+    d_num = [1, 2, 3]  # 柔性测试破坏介个点
+    for i in d_num:
+        df[f"d_num_{i}"] = None
+    # for i in d_num:
+    #     df[f"dis_{i}"] = None
+    # drop = [0.01, 0.05, 0.1, 0.2]
+    # for i in drop:
+    #     df[f"drop_{i}"] = None
 
     for i in data_sets:
         for f_n in fac_number:
-            instance = load_data(data_type, data_set=i, fac_n=f_n)
+            instance = load_data(data_type, data_set=i, fac_n=f_n, read_file=True)
+            # Fac_L = 4
             Dis_m = instance.dis_matrix
             std = np.std(Dis_m)
             mean = np.mean(Dis_m)
@@ -1051,12 +1079,14 @@ if __name__ == "__main__":
             t_initial = time.time()
 
             # Solve the original MIP model
-            # UB, opt_time = solve_MIP()
+            # UB, opt_time, facility = solve_MIP()
             # inter = 0
             # LB_0 = LB
 
             # IBD algorithm
-            UB, LB, opt_time, inter, LB_0 = Benders_solve()
+            UB, LB, opt_time, inter, LB_0, facility = Benders_solve()
+
+            max_min_dis = np.max(np.min(Dis_m[:, facility], axis=1))
 
             result.append(UB)
             iter_num.append(inter)
@@ -1067,7 +1097,41 @@ if __name__ == "__main__":
             # print('Optimal Location', facility)
             print("opt_time:", time.time() - opt_time)
             print(f'whole time cost: time = {time.time() - t_initial}')
-            df.loc[len(df.index)] = [i, f_n, UB, LB, time.time() - opt_time, time.time() - t_initial, inter, LB_0]
+            df_data = [i, f_n, UB, LB, time.time() - opt_time, time.time() - t_initial, inter, LB_0,  max_min_dis]
+
+            # 可视化
+            pic = Visualize()
+            coor_lim = ([-45, 125], [-40, 260])
+            # coor_lim = None
+            pic.plt_ellipse_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB, instance_name=str(i), coor_lim=coor_lim)
+
+            # 柔性测试
+            np.random.seed(888)
+            test = Test()
+            for d in d_num:
+                radios = []
+                for mm in range(10):
+                    seed = np.random.randint(0, 1000000, 1)[0]
+                    r = test.test_facility_destroy(Dis_m, facility=facility, endurance=UB,
+                                                   d_num=d, instance_name=str(i), seed=seed)
+                    radios.append(r)
+                # df_ra = pd.DataFrame(np.array(radios))
+                # df_ra.to_csv("test.csv")
+                avg_radios = np.mean(np.array(radios))
+                df_data.append(avg_radios)
+
+            # for d in drop:
+            #     radios = []
+            #     for mm in range(10):
+            #         seed = np.random.randint(0, 1000000, 1)[0]
+            #         r = test.test_demand_change(Dis_m, facility=facility, endurance=UB,
+            #                                drop=d, add=d, instance_name=str(i), seed=seed)
+            #         radios.append(r)
+            #     avg_radios = np.mean(np.array(radios))
+            #     df_data.append(avg_radios)
+
+            df.loc[len(df.index)] = df_data
+
 
     print("Result:", result)
     print("time_spend", time_spend)

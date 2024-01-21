@@ -191,12 +191,13 @@ def build_original_MIP():
                                  name='x' + str(i))
     org_model.setObjective(z, GRB.MINIMIZE)
     for j in range(Cus_n):
+        for i in range(Fac_n):
         # lhs = z - Dis_m[i, :] @ x[i]
-        lhs = z - quicksum(Dis_m[i, j] * x[i][j] for i in range(Fac_n))
-        org_model.addConstr(lhs >= 0)
+            lhs = z - Dis_m[i, j] * x[i][j]  # quicksum(Dis_m[i, j] * x[i][j] for i in range(Fac_n))
+            org_model.addConstr(lhs >= 0)
     org_model.addConstr(y.sum() == Fac_L)
     for j in range(Cus_n):
-        org_model.addConstr(quicksum(x[i][j] for i in range(Fac_n)) == 1)
+        org_model.addConstr(quicksum(x[i][j] for i in range(Fac_n)) == 2)
     for i in range(Fac_n):
         cof = np.zeros((Fac_n, Cus_n))
         cof[:, i] = 1
@@ -204,7 +205,7 @@ def build_original_MIP():
     org_model.update()
     org_model._vars = y
     # org_model._vars = y  # .tolist()
-    # self.org_model.Params.PreCrush = 1
+    org_model.setParam('MIPFocus', 2)
     # org_model.Params.lazyConstraints = 1
     # org_model.Params.Heuristics = 0.001
     return org_model
@@ -741,7 +742,13 @@ def solve_MIP():
     # orig_model.setParam('PreCrush', 1)
     # orig_model.optimize(call_back_lazy)
     UB = orig_model.ObjVal
-    return UB, opt_time
+
+    y_val = np.zeros(Fac_n)
+    for i in range(Fac_n):
+        y_val[i] = orig_model.getVarByName(f"y[{i}]").x
+    facility = np.argpartition(y_val, -Fac_L)[-Fac_L:]
+
+    return UB, opt_time, facility
 
 
 def Benders_solve():
@@ -933,8 +940,46 @@ def load_data(data_type, data_set=None, fac_n=None, read_file=False):
     return instance
 
 
+def reformulation():
+    ref_model = Model('reformulation model')
+    u = ref_model.addVars(len(Sort_dis), vtype=GRB.BINARY, name="u")
+    y = ref_model.addVars(Fac_n, vtype=GRB.BINARY, name="y")
+    ref_model.update()
+    obj_lhs = Sort_dis[0]
+    for k in range(1, len(Sort_dis)):
+        obj_lhs += (Sort_dis[k] - Sort_dis[k-1]) * u[k]
+    ref_model.setObjective(obj_lhs, GRB.MINIMIZE)
+    ref_model.addConstr(y.sum() == Fac_L)
+    for k in range(1, len(Sort_dis)):
+        ref_model.addConstr(u[k-1] >= u[k])
+    for j in range(Cus_n):
+        # second_min = np.partition(Dis_m[:, j], 1)[1]
+        for k in range(len(Sort_dis)):
+            dk = Sort_dis[k]
+            if dk in Dis_m[:, j]:
+                if dk > 0:
+                    lhs3 = 2 * u[k] + quicksum(y[i] for i in range(Fac_n) if Dis_m[i, j] < dk)
+                    # print(lhs3)
+                    ref_model.addConstr(lhs3 >= 2)
+    ref_model.update()
+    opt_time = time.time()
+    ref_model.setParam('MIPFocus', 2)
+    ref_model.optimize()
+    UB = ref_model.ObjVal
+    y_val = np.zeros(Fac_n)
+    for i in range(Fac_n):
+        y_val[i] = ref_model.getVarByName(f"y[{i}]").x
+    facility = np.argpartition(y_val, -Fac_L)[-Fac_L:]
+    # u_val = np.zeros(len(Sort_dis))
+    # for k in range(len(Sort_dis)):
+    #     u_val[k] = ref_model.getVarByName(f"u[{i}]").x
+
+    return UB, opt_time, facility
+
+
+
 if __name__ == "__main__":
-    df = pd.DataFrame(columns=["pmed No.", "Fac_n", "Optima", "LB", "opt_time", "total_time", "Iter_num", "LB_0"])
+    df = pd.DataFrame(columns=["pmed No.", "Fac_n", "Optima", "LB", "opt_time", "total_time", "Iter_num", "LB_0", "min_max"])
     result = []
     iter_num = []
     time_spend = []
@@ -948,21 +993,20 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 2
-    data_sets = ['rat99']  # range(1, 41)  # ['rat99'] # [8]  # ["st70"] # range(1, 41)
+    data_type = 2  # 2
+    data_sets = ['rat99']  # range(1, 41)  # ['rat99'] # range(31, 41)  # ["st70"] # range(1, 41)
     # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
     fac_number = [6]  # [5, 10, 100, 200, 300, 400, 500]
-    d_num = [1, 2, 3]  # 柔性测试破坏介个点
-    for i in d_num:
-        df[f"d_num_{i}"] = None
+    # d_num = [0.1, 0.2, 0.25]  # 柔性测试破坏介个点
     # for i in d_num:
     #     df[f"dis_{i}"] = None
-    # drop = [0.01, 0.05, 0.1, 0.2]
-    # for i in drop:
-    #     df[f"drop_{i}"] = None
+
+    drop = [0.01, 0.05, 0.1, 0.2]
+    for i in drop:
+        df[f"drop_{i}"] = None
 
     for i in data_sets:
         for f_n in fac_number:
@@ -979,12 +1023,15 @@ if __name__ == "__main__":
             t_initial = time.time()
 
             # Solve the original MIP model
-            # UB, opt_time = solve_MIP()
-            # inter = 0
-            # LB_0 = LB
+            # UB, opt_time, facility = solve_MIP()
+            UB, opt_time, facility = reformulation()
+            inter = 0
+            LB_0 = LB
 
             # IBD algorithm
-            UB, LB, opt_time, inter, LB_0, facility = Benders_solve()
+            # UB, LB, opt_time, inter, LB_0, facility = Benders_solve()
+
+            max_min_dis = np.max(np.min(Dis_m[:, facility], axis=1))
 
             result.append(UB)
             iter_num.append(inter)
@@ -995,40 +1042,40 @@ if __name__ == "__main__":
             # print('Optimal Location', facility)
             print("opt_time:", time.time() - opt_time)
             print(f'whole time cost: time = {time.time() - t_initial}')
-            df_data = [i, f_n, UB, LB, time.time() - opt_time, time.time() - t_initial, inter, LB_0]
+            df_data = [i, f_n, UB, LB, time.time() - opt_time, time.time() - t_initial, inter, LB_0,
+                                     max_min_dis]
 
             # 可视化
             pic = Visualize()
             coor_lim = ([-45, 125], [-40, 260])
-            pic.plt_circle_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB, instance_name=str(i), ellipse=True, coor_lim=coor_lim)
-            # pic.plt_ellipse_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB,
-            #                       instance_name=str(i))
-
+            pic.plt_circle_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB,
+                                 instance_name=str(i), coor_lim=coor_lim)
             # 柔性测试
-            np.random.seed(888)
             test = Test()
-            for d in d_num:
-                radios = []
-                for mm in range(10):
-                    seed = np.random.randint(0, 1000000, 1)[0]
-                    r = test.test_facility_destroy(Dis_m, facility=facility, endurance=2*UB,
-                                                   d_num=d, instance_name=str(i), seed=seed)
-                    radios.append(r)
-                # df_ra = pd.DataFrame(np.array(radios))
-                # df_ra.to_csv("test.csv")
-                avg_radios = np.mean(np.array(radios))
-                df_data.append(avg_radios)
-            # for d in drop:
+            # for d in d_num:
             #     radios = []
             #     for mm in range(10):
             #         seed = np.random.randint(0, 1000000, 1)[0]
-            #         r = test.test_demand_change(Dis_m, facility=facility, endurance=2 * UB,
-            #                                drop=d, add=d, instance_name=str(i), seed=seed)
+            #         r = test.test_facility_destroy(Dis_m, facility=facility, endurance=2*UB,
+            #                                        d_radio=d, instance_name=str(i), seed=seed)
             #         radios.append(r)
+            #     # df_ra = pd.DataFrame(np.array(radios))
+            #     # df_ra.to_csv("test.csv")
             #     avg_radios = np.mean(np.array(radios))
             #     df_data.append(avg_radios)
+            np.random.seed(888)
+            for d in drop:
+                radios = []
+                for mm in range(10):
+                    seed = np.random.randint(0, 1000000, 1)[0]
+                    r = test.test_demand_change(Dis_m, facility=facility, endurance=2 * UB,
+                                           drop=d, add=d, instance_name=str(i), seed=seed)
+                    radios.append(r)
+                avg_radios = np.mean(np.array(radios))
+                df_data.append(avg_radios)
 
             df.loc[len(df.index)] = df_data
+
 
     print("Result:", result)
     print("time_spend", time_spend)
