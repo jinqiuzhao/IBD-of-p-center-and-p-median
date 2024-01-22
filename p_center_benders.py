@@ -8,6 +8,7 @@ import time
 from ultis import get_UB1, get_UB2
 from visualize import Visualize
 from felxible_test import Test
+from Openstreetmap.oms_map import map_visualize
 
 # Global variable definition
 HARD_TIME = 20  # seconds
@@ -934,7 +935,7 @@ def load_data(data_type, data_set=None, fac_n=None, read_file=False):
 
 
 if __name__ == "__main__":
-    df = pd.DataFrame(columns=["pmed No.", "Fac_n", "Optima", "LB", "opt_time", "total_time", "Iter_num", "LB_0"])
+    df = pd.DataFrame(columns=["pmed No.", "Fac_n", "Optima", "LB", "opt_time", "total_time", "Iter_num", "LB_0", "dis_albel_2"])
     result = []
     iter_num = []
     time_spend = []
@@ -948,14 +949,14 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 2
-    data_sets = ['rat99']  # range(1, 41)  # ['rat99'] # [8]  # ["st70"] # range(1, 41)
+    data_type = 6
+    data_sets = ['euclidean_345_longhua']  # range(1, 41)  # ['rat99'] # [8]  # ["st70"] # range(1, 41)
     # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [6]  # [5, 10, 100, 200, 300, 400, 500]
-    d_num = [1, 2, 3]  # 柔性测试破坏介个点
+    fac_number = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 20, 30]  # [11, 12, 13, 14, 15]  #[5]  #   # [5, 10, 100, 200, 300, 400, 500]
+    d_num = []  # 柔性测试破坏介个点
     for i in d_num:
         df[f"d_num_{i}"] = None
     # for i in d_num:
@@ -995,38 +996,46 @@ if __name__ == "__main__":
             # print('Optimal Location', facility)
             print("opt_time:", time.time() - opt_time)
             print(f'whole time cost: time = {time.time() - t_initial}')
-            df_data = [i, f_n, UB, LB, time.time() - opt_time, time.time() - t_initial, inter, LB_0]
+            # 计算无法被双重覆盖的比例
+            arr = Dis_m[:, facility]
+            sorted_arr = np.sort(arr, axis=1)
+            second_smallest = sorted_arr[:, 1]
+            greater_than_U = second_smallest > UB
+            num_rows_greater_than_U = np.sum(greater_than_U)
+
+            df_data = [i, f_n, UB, LB, time.time() - opt_time, time.time() - t_initial, inter, LB_0, num_rows_greater_than_U / Cus_n]
 
             # 可视化
-            pic = Visualize()
-            coor_lim = ([-45, 125], [-40, 260])
-            pic.plt_circle_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB, instance_name=str(i), ellipse=True, coor_lim=coor_lim)
-            # pic.plt_ellipse_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB,
-            #                       instance_name=str(i))
-
-            # 柔性测试
-            np.random.seed(888)
-            test = Test()
-            for d in d_num:
-                radios = []
-                for mm in range(10):
-                    seed = np.random.randint(0, 1000000, 1)[0]
-                    r = test.test_facility_destroy(Dis_m, facility=facility, endurance=2*UB,
-                                                   d_num=d, instance_name=str(i), seed=seed)
-                    radios.append(r)
-                # df_ra = pd.DataFrame(np.array(radios))
-                # df_ra.to_csv("test.csv")
-                avg_radios = np.mean(np.array(radios))
-                df_data.append(avg_radios)
-            # for d in drop:
+            # pic = Visualize()
+            # coor_lim = ([-45, 125], [-40, 260])
+            # pic.plt_circle_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB, instance_name=str(i), ellipse=True, coor_lim=coor_lim)
+            # # pic.plt_ellipse_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB,
+            # #                       instance_name=str(i))
+            # map_visualize(Dis_m, facility, UB, ellipse=False)
+            #
+            # # 柔性测试
+            # np.random.seed(888)
+            # test = Test()
+            # for d in d_num:
             #     radios = []
             #     for mm in range(10):
             #         seed = np.random.randint(0, 1000000, 1)[0]
-            #         r = test.test_demand_change(Dis_m, facility=facility, endurance=2 * UB,
-            #                                drop=d, add=d, instance_name=str(i), seed=seed)
+            #         r = test.test_facility_destroy(Dis_m, facility=facility, endurance=2*UB,
+            #                                        d_num=d, instance_name=str(i), seed=seed)
             #         radios.append(r)
+            #     # df_ra = pd.DataFrame(np.array(radios))
+            #     # df_ra.to_csv("test.csv")
             #     avg_radios = np.mean(np.array(radios))
             #     df_data.append(avg_radios)
+            # # for d in drop:
+            # #     radios = []
+            # #     for mm in range(10):
+            # #         seed = np.random.randint(0, 1000000, 1)[0]
+            # #         r = test.test_demand_change(Dis_m, facility=facility, endurance=2 * UB,
+            # #                                drop=d, add=d, instance_name=str(i), seed=seed)
+            # #         radios.append(r)
+            # #     avg_radios = np.mean(np.array(radios))
+            # #     df_data.append(avg_radios)
 
             df.loc[len(df.index)] = df_data
 

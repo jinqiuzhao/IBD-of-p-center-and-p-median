@@ -8,6 +8,7 @@ import time
 from ultis import get_UB1, get_UB2
 from visualize import Visualize
 from felxible_test import Test
+from Openstreetmap.oms_map import map_visualize
 
 # Global variable definition
 HARD_TIME = 20  # seconds
@@ -993,18 +994,18 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 2  # 2
-    data_sets = ['rat99']  # range(1, 41)  # ['rat99'] # range(31, 41)  # ["st70"] # range(1, 41)
+    data_type = 6  # 2
+    data_sets = ['euclidean_345_longhua']   # range(1, 41)  # ['rat99'] # range(31, 41)  # ["st70"] # range(1, 41)
     # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [6]  # [5, 10, 100, 200, 300, 400, 500]
-    # d_num = [0.1, 0.2, 0.25]  # 柔性测试破坏介个点
-    # for i in d_num:
-    #     df[f"dis_{i}"] = None
+    fac_number = [3] # [11] # [11, 12, 13, 14, 15]  # [5]  # [3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 30]  # [5, 10, 100, 200, 300, 400, 500]
+    d_num = [] # [1, 2, 3]  # 柔性测试破坏介个点
+    for i in d_num:
+        df[f"d_num_{i}"] = None
 
-    drop = [0.01, 0.05, 0.1, 0.2]
+    drop = []  # [0.01, 0.05, 0.1, 0.2]
     for i in drop:
         df[f"drop_{i}"] = None
 
@@ -1046,33 +1047,34 @@ if __name__ == "__main__":
                                      max_min_dis]
 
             # 可视化
-            pic = Visualize()
-            coor_lim = ([-45, 125], [-40, 260])
-            pic.plt_circle_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB,
-                                 instance_name=str(i), coor_lim=coor_lim)
-            # 柔性测试
-            test = Test()
-            # for d in d_num:
+            # pic = Visualize()
+            # coor_lim = ([-45, 125], [-40, 260])
+            # pic.plt_circle_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB,
+            #                      instance_name=str(i), coor_lim=coor_lim)
+            map_visualize(Dis_m, facility, UB, ellipse=False)
+            # # 柔性测试
+            # test = Test()
+            # # for d in d_num:
+            # #     radios = []
+            # #     for mm in range(10):
+            # #         seed = np.random.randint(0, 1000000, 1)[0]
+            # #         r = test.test_facility_destroy(Dis_m, facility=facility, endurance=2*UB,
+            # #                                        d_radio=d, instance_name=str(i), seed=seed)
+            # #         radios.append(r)
+            # #     # df_ra = pd.DataFrame(np.array(radios))
+            # #     # df_ra.to_csv("test.csv")
+            # #     avg_radios = np.mean(np.array(radios))
+            # #     df_data.append(avg_radios)
+            # np.random.seed(888)
+            # for d in drop:
             #     radios = []
             #     for mm in range(10):
             #         seed = np.random.randint(0, 1000000, 1)[0]
-            #         r = test.test_facility_destroy(Dis_m, facility=facility, endurance=2*UB,
-            #                                        d_radio=d, instance_name=str(i), seed=seed)
+            #         r = test.test_demand_change(Dis_m, facility=facility, endurance=2 * UB,
+            #                                drop=d, add=d, instance_name=str(i), seed=seed)
             #         radios.append(r)
-            #     # df_ra = pd.DataFrame(np.array(radios))
-            #     # df_ra.to_csv("test.csv")
             #     avg_radios = np.mean(np.array(radios))
             #     df_data.append(avg_radios)
-            np.random.seed(888)
-            for d in drop:
-                radios = []
-                for mm in range(10):
-                    seed = np.random.randint(0, 1000000, 1)[0]
-                    r = test.test_demand_change(Dis_m, facility=facility, endurance=2 * UB,
-                                           drop=d, add=d, instance_name=str(i), seed=seed)
-                    radios.append(r)
-                avg_radios = np.mean(np.array(radios))
-                df_data.append(avg_radios)
 
             df.loc[len(df.index)] = df_data
 

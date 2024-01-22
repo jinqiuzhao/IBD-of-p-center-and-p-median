@@ -6,6 +6,7 @@ import pandas as pd
 from gurobipy import *
 import time
 from ellipse_ultis import get_UB1, get_UB2
+from Openstreetmap.oms_map import map_visualize
 from visualize import Visualize
 from felxible_test import Test
 
@@ -625,7 +626,7 @@ def build_SP(j, y_val=None):
     SP = Model(f"subproblem_{j}")
     x = SP.addVars(Fac_n, lb=0, vtype=GRB.CONTINUOUS, name="x")
     SP.setObjective(quicksum(x[i] * Dis_m[i, j] for i in range(Fac_n)), GRB.MINIMIZE)
-    SP.addConstr(quicksum(x[i] for i in range(Fac_n)) == 1, name="constr_1")
+    SP.addConstr(quicksum(x[i] for i in range(Fac_n)) == 2, name="constr_1")
     for i in range(Fac_n):
         SP.addConstr(x[i] <= y_val[i], name=f"constr_x[{i}]")
     SP.update()
@@ -653,15 +654,26 @@ def slove_SPs(SPs, y_val, MP):
         for i in range(Fac_n):
             mu[i] = SPs[j].getConstrByName(f"constr_x[{i}]").Pi
             lhs.addTerms(mu[i], y[i])
-        MP.addConstr(w >= beta + lhs)
+        MP.addConstr(w >= 2 * beta + lhs)
     MP.update()
     return max(sp_obj)
 
 
-def pure_decomposition(MP, eps=0.00001):
+def pure_decomposition( eps=0.00001):
+    MP = build_MP(int_sol=True)
+    MP.Params.PoolGap = 0.01
+    MP.setParam('TimeLimit', HARD_TIME)
+    # org_model.Params.PoolSolutions = 5
+    # org_model.setParam('PreSolve', 2)
+    MP.setParam('OutputFlag', 0)
+    # org_model.setParam('LazyConstraints', 1)
+    MP.setParam('MIPFocus', 3)  # 3 优化边界
+    # org_model.setParam('Method', 0)
+    MP.setParam('PreCrush', 1)
     print('============================================')
     print('============================================')
     SPs = []
+    opt_time = time.time()
     for j in range(Cus_n):
         SPs.append(build_SP(j))
     UB = np.inf
@@ -670,7 +682,7 @@ def pure_decomposition(MP, eps=0.00001):
     LB = max(LB, lb)
     ub = slove_SPs(SPs, y_val, MP)
     UB = min(UB, ub)
-    while abs(UB - LB) / (LB + 0.0001) > 0.0001:
+    while abs(UB - LB) / (LB + 0.001) > 0.001:
         Gap = round(100 * (UB - LB) / (LB + 0.0001), 4)
         print(' %7.2f ' % UB, end='')
         print(' %7.2f ' % LB, end='')
@@ -681,9 +693,12 @@ def pure_decomposition(MP, eps=0.00001):
         LB = max(LB, lb)
         ub = slove_SPs(SPs, y_val, MP)
         UB = min(UB, ub)
+        if time.time() - opt_time >= 3600:
+            break
     print()
     print(facility)
-    return UB
+    # return UB
+    return UB, LB, opt_time, 0, 0, facility
 
 
 def add_benders_cut_sep(MP, y_val, mp_obj, cb=False, cbcut=False):
@@ -1044,17 +1059,17 @@ if __name__ == "__main__":
             6：city map dataset，data_set in ["Portland", "Manhattan", "beijing", "chengdu"] is the city name
 
         """
-    data_type = 2
-    data_sets = ['rat99']  # range(1, 41)  # ['rat99']  # [8] # range(1, 41) #["st70"]  # [5] # range(37, 41)  # range(1, 41) [13]
+    data_type = 6  # 1
+    data_sets = ['euclidean_345_longhua']  # range(11, 41) # ['rat99']  # range(1, 41)  # ['rat99']  # [8] # range(1, 41) #["st70"]  # [5] # range(37, 41)  # range(1, 41) [13]
     # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [6]  # [5, 10, 100, 200, 300, 400, 500]
+    fac_number = [3] # [11, 12, 13, 14, 15] # [5]  # [3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 30]  # [5, 10, 100, 200, 300, 400, 500]
     # d_radio = [0.1, 0.2, 0.25]  # 柔性测试破坏介个点
     # for i in d_radio:
     #     df[f"d_radio_{i}"] = None
-    d_num = [1, 2, 3]  # 柔性测试破坏介个点
+    d_num = [] # [1, 2, 3]  # 柔性测试破坏介个点
     for i in d_num:
         df[f"d_num_{i}"] = None
     # for i in d_num:
@@ -1086,6 +1101,9 @@ if __name__ == "__main__":
             # IBD algorithm
             UB, LB, opt_time, inter, LB_0, facility = Benders_solve()
 
+            # classical Benders
+            # UB, LB, opt_time, inter, LB_0, facility = pure_decomposition()
+
             max_min_dis = np.max(np.min(Dis_m[:, facility], axis=1))
 
             result.append(UB)
@@ -1100,25 +1118,26 @@ if __name__ == "__main__":
             df_data = [i, f_n, UB, LB, time.time() - opt_time, time.time() - t_initial, inter, LB_0,  max_min_dis]
 
             # 可视化
-            pic = Visualize()
-            coor_lim = ([-45, 125], [-40, 260])
-            # coor_lim = None
-            pic.plt_ellipse_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB, instance_name=str(i), coor_lim=coor_lim)
-
-            # 柔性测试
-            np.random.seed(888)
-            test = Test()
-            for d in d_num:
-                radios = []
-                for mm in range(10):
-                    seed = np.random.randint(0, 1000000, 1)[0]
-                    r = test.test_facility_destroy(Dis_m, facility=facility, endurance=UB,
-                                                   d_num=d, instance_name=str(i), seed=seed)
-                    radios.append(r)
-                # df_ra = pd.DataFrame(np.array(radios))
-                # df_ra.to_csv("test.csv")
-                avg_radios = np.mean(np.array(radios))
-                df_data.append(avg_radios)
+            # pic = Visualize()
+            # coor_lim = ([-45, 125], [-40, 260])
+            # # coor_lim = None
+            # pic.plt_ellipse_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB, instance_name=str(i), coor_lim=coor_lim)
+            map_visualize(Dis_m, facility, UB, ellipse=True)
+            #
+            # # 柔性测试
+            # np.random.seed(888)
+            # test = Test()
+            # for d in d_num:
+            #     radios = []
+            #     for mm in range(10):
+            #         seed = np.random.randint(0, 1000000, 1)[0]
+            #         r = test.test_facility_destroy(Dis_m, facility=facility, endurance=UB,
+            #                                        d_num=d, instance_name=str(i), seed=seed)
+            #         radios.append(r)
+            #     # df_ra = pd.DataFrame(np.array(radios))
+            #     # df_ra.to_csv("test.csv")
+            #     avg_radios = np.mean(np.array(radios))
+            #     df_data.append(avg_radios)
 
             # for d in drop:
             #     radios = []
