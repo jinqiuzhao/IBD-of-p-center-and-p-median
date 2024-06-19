@@ -206,6 +206,9 @@ if __name__ == '__main__':
     place = "龙华区, 深圳, 中国"
     # 获取地图数据
     city = ox.geocode_to_gdf(place)
+    # 转换为平方米，以下使用EPSG:3395(WGS 84 / World Mercator)作为投影参考系进行面积计算
+    total_area_sq_meters = city.to_crs('EPSG:3395').geometry.area.sum()/1e6
+    print("总面积：", total_area_sq_meters)
     north, south, east, west = city["bbox_north"].iloc[0], city["bbox_south"].iloc[0], \
                                city["bbox_east"].iloc[0], city["bbox_west"].iloc[0]
     G = ox.graph_from_bbox(north, south, east, west, network_type="drive")

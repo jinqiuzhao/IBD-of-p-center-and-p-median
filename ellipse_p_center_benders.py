@@ -1118,10 +1118,10 @@ if __name__ == "__main__":
             df_data = [i, f_n, UB, LB, time.time() - opt_time, time.time() - t_initial, inter, LB_0,  max_min_dis]
 
             # 可视化
-            # pic = Visualize()
-            # coor_lim = ([-45, 125], [-40, 260])
-            # # coor_lim = None
-            # pic.plt_ellipse_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB, instance_name=str(i), coor_lim=coor_lim)
+            pic = Visualize()
+            coor_lim = ([-45, 125], [-40, 260])
+            # coor_lim = None
+            pic.plt_ellipse_cover(Dis_m, points=np.array(instance.coordinate), facility=facility, radius=UB, instance_name=str(i), coor_lim=coor_lim)
             map_visualize(Dis_m, facility, UB, ellipse=True)
             #
             # # 柔性测试
