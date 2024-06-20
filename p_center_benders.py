@@ -165,6 +165,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.):
     Cut_index = np.zeros((Cus_n, len(Sort_dis)), dtype=int)
     ub_obj, int_obj, constr_num = add_benders_cut(MP_relax, y_val, LB, int_UB, relax_ub=int_UB, int_sol=False,
                                                   MP_int=MP, updata=3)
+    y_val, z_val, facility, low_bound = solve_MP(MP_relax)
     print(constr_num)
     int_UB = min(int_UB, int_obj)
     # MP.update()
@@ -179,7 +180,7 @@ def Benders_Decomposition(MP, UB1=np.inf, LB1=0, eps=1.):
     print(f'total time cost: time = {time.time() - t_initial}')
     print(f"LB:{np.ceil(max(LB, LB1))}, UB:{int_UB}")
     # return UB, int_UB
-    return np.ceil(max(LB, LB1)), int_UB
+    return np.ceil(max(LB, LB1)), int_UB, facility
 
 
 def build_original_MIP():
@@ -199,7 +200,7 @@ def build_original_MIP():
     for j in range(Cus_n):
         org_model.addConstr(quicksum(x[i][j] for i in range(Fac_n)) == 1)
     for i in range(Fac_n):
-        cof = np.zeros((Fac_n, Cus_n))
+        cof = np.zeros((Cus_n, Fac_n))
         cof[:, i] = 1
         org_model.addConstr(x[i] <= cof @ y)
     org_model.update()
@@ -222,12 +223,14 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         w_1 = MP_int.getVarByName(f"w")
 
     constr_num = 0
-    y_dis = np.take_along_axis(Dis_m, Sort_dis_index, axis=1)
+    y_dis = np.take_along_axis(Dis_m.T, Sort_dis_index, axis=1)
     y_sort = y_val[Sort_dis_index]
     y_cumsum = np.cumsum(y_sort, axis=1)
     k_js = np.argmax(y_cumsum >= 1, axis=1)
     # vir_fac = set(Sort_dis_index[np.arange(len(k_js)), k_js])
-    int_obj_j = Dis_m[np.arange(Dis_m.shape[0]), Sort_dis_index[np.arange(Sort_dis_index.shape[0]), k_js]]
+    # a = Sort_dis_index[np.arange(Sort_dis_index.shape[0]), k_js]
+    # int_obj_j = Dis_m.T[np.arange(Dis_m.shape[1]), Sort_dis_index[np.arange(Sort_dis_index.shape[0]), k_js]]
+    int_obj_j = y_dis[np.arange(Dis_m.shape[1]), k_js]
     int_obj = np.max(int_obj_j)
     if int_obj <= np.ceil(lb) and int_sol:
         return int_obj, int_obj, constr_num
@@ -317,6 +320,8 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         #                 break
         if j == 46:
             adf = 10
+        if ub_k_js[j] <= 0:
+            continue
         if k_js[j] <= ub_k_js[j]:
             k = k_js[j]
             k_th = k_ths_js[j]
@@ -751,16 +756,20 @@ def Benders_solve():
 
     global UB, LB
     # UB1, f_set = get_UB1(Dis_m, Fac_L)
-    # obj = np.max(np.min(Dis_m[:, list(f_set)], axis=1))
-    UB, UB1, f_set = get_UB2(Dis_m, Fac_L)
-    obj = np.max(np.min(Dis_m[:, list(f_set)], axis=1))
-    UB = min(UB, obj)
-    LB = np.ceil(UB1 / 2)
-    print(LB, UB)
-    LB_0, UB_0 = Benders_Decomposition(org_model, UB, LB)
+    # # obj = np.max(np.min(Dis_m[:, list(f_set)], axis=1))
+    # # UB, UB1, f_set = get_UB2(Dis_m, Fac_L)
+    # # obj = np.max(np.min(Dis_m[:, list(f_set)], axis=1))
+    # UB = UB1  # min(UB, obj)
+    # LB = 0  # np.ceil(UB1 / 2)
+    # print(LB, UB)
+    f_set = list(range(0, Fac_L))
+    obj = np.max(np.min(Dis_m[list(f_set), :], axis=0))
+    LB = 0
+    UB = obj
+    LB_0, UB_0, f_set = Benders_Decomposition(org_model, UB, LB)
     LB, UB = LB_0, UB_0
-    LB_0 = LB
-    # LB = 0
+    # LB_0 = LB
+    # LB = LB_0
     # UB = 100000
 
     org_model.Params.PoolGap = 0.01
@@ -788,6 +797,7 @@ def Benders_solve():
     org_model.update()
     update_model = 0
     y_val, z_val, facility, lb = solve_MP(org_model, callback=call_back)
+    # obj = np.max(np.min(Dis_m[list(facility), :], axis=0))
     if lb > LB:
         update_model += 1
         LB = lb
@@ -950,12 +960,12 @@ if __name__ == "__main__":
 
         """
     data_type = 6
-    data_sets = ['euclidean_345_longhua']  # range(1, 41)  # ['rat99'] # [8]  # ["st70"] # range(1, 41)
+    data_sets = ['euclidean_764_longhua']  # range(1, 41)  # ['rat99'] # [8]  # ["st70"] # range(1, 41)
     # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 20, 30]  # [11, 12, 13, 14, 15]  #[5]  #   # [5, 10, 100, 200, 300, 400, 500]
+    fac_number = [16]  # [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 30]  # [11, 12, 13, 14, 15]  #[5]  #   # [5, 10, 100, 200, 300, 400, 500]
     d_num = []  # 柔性测试破坏介个点
     for i in d_num:
         df[f"d_num_{i}"] = None
@@ -973,7 +983,7 @@ if __name__ == "__main__":
             mean = np.mean(Dis_m)
             Cus_n = instance.customer_num
             Fac_n = instance.facility_num
-            Sort_dis_index = np.argsort(Dis_m, axis=1)
+            Sort_dis_index = np.argsort(Dis_m, axis=0).T
             Sort_dis = np.sort(np.unique(Dis_m.flatten()))
             Cut_index = np.zeros((Cus_n, len(Sort_dis)), dtype=int)  # len(Sort_dis))
             # Sqs_index = cal_sqs_info(Dis_m, Sort_dis_index)
@@ -997,9 +1007,9 @@ if __name__ == "__main__":
             print("opt_time:", time.time() - opt_time)
             print(f'whole time cost: time = {time.time() - t_initial}')
             # 计算无法被双重覆盖的比例
-            arr = Dis_m[:, facility]
-            sorted_arr = np.sort(arr, axis=1)
-            second_smallest = sorted_arr[:, 1]
+            arr = Dis_m[facility, :]
+            sorted_arr = np.sort(arr, axis=0)
+            second_smallest = sorted_arr[1, :]
             greater_than_U = second_smallest > UB
             num_rows_greater_than_U = np.sum(greater_than_U)
 

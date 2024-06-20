@@ -11,21 +11,27 @@ from scipy.spatial.distance import cdist
 from math import radians, cos, sin, asin, sqrt
 from pyproj import Proj, transform
 
+
 # 计算地图距离（沿着道路的距离）
 # 计算地图距离（沿着道路的距离）
-def compute_optimized_map_distances(G, nodes):
-    length = len(nodes)
-    distance_matrix = np.full((length, length), np.inf)  # 用无穷大初始化距离矩阵
-    for i, j in itertools.combinations(range(length), 2):
-        try:
-            # 尝试计算两个节点之间的最短路径长度
-            distance = nx.shortest_path_length(G, nodes[i], nodes[j], weight='length')
-        except nx.NetworkXNoPath:
-            # 如果不存在路径，则距离保持为无穷大
-            continue
-        # 更新距离矩阵
-        distance_matrix[i, j] = np.ceil(distance/100)
-        distance_matrix[j, i] = np.ceil(distance/100)  # 距离矩阵是对称的
+def compute_optimized_map_distances(G, nodes, nearest_node_depot=None):
+    cust_length = len(nodes)
+    if nearest_node_depot is None:
+        nearest_node_depot = nodes
+    depot_length = len(nearest_node_depot)
+    distance_matrix = np.full((depot_length, cust_length), np.inf)  # 用无穷大初始化距离矩阵
+    for i in range(depot_length):
+        for j in range(cust_length):
+            # for i, j in itertools.combinations(range(length), 2):
+            try:
+                # 尝试计算两个节点之间的最短路径长度
+                distance = nx.shortest_path_length(G, nodes[i], nodes[j], weight='length')
+            except nx.NetworkXNoPath:
+                # 如果不存在路径，则距离保持为无穷大
+                continue
+            # 更新距离矩阵
+            distance_matrix[i, j] = np.ceil(distance / 100)
+            # distance_matrix[j, i] = np.ceil(distance/100)  # 距离矩阵是对称的
     np.fill_diagonal(distance_matrix, 0)
     return distance_matrix
 
@@ -44,14 +50,18 @@ def haversine(lon1, lat1, lon2, lat2):
     dist = earth_radius * c
     return dist
 
+
 # 使用numpy矩阵操作和手动实现的haversine函数计算距离矩阵
-def compute_optimized_euclidean_distances(lats, lons):
-    length = len(lats)
-    distance_matrix = np.zeros((length, length))
-    for i in range(length):
-        for j in range(i + 1, length):
-            distance_matrix[i, j] = np.ceil(haversine(lons[i], lats[i], lons[j], lats[j])/100)
-            distance_matrix[j, i] = distance_matrix[i, j]
+def compute_optimized_euclidean_distances(lats, lons, depot_lats=None, depot_lons=None):
+    cust_length = len(lats)
+    if depot_lats is None:
+        depot_lats, depot_lons = lats, lons
+    depot_length = len(depot_lats)
+    distance_matrix = np.zeros((depot_length, cust_length))
+    for i in range(depot_length):
+        for j in range(cust_length):  # range(i + 1, cust_length):
+            distance_matrix[i, j] = np.ceil(haversine(depot_lons[i], depot_lats[i], lons[j], lats[j]) / 100)
+            # distance_matrix[j, i] = distance_matrix[i, j]
     return distance_matrix
 
 
@@ -91,7 +101,7 @@ def map_visualize(dis_matrix, facility, radius, ellipse=True):
     # 获取地图数据
     city = ox.geocode_to_gdf(place)
     north, south, east, west = city["bbox_north"].iloc[0], city["bbox_south"].iloc[0], \
-                               city["bbox_east"].iloc[0], city["bbox_west"].iloc[0]
+        city["bbox_east"].iloc[0], city["bbox_west"].iloc[0]
     G = ox.graph_from_bbox(north, south, east, west, network_type="drive")
 
     # 将道路网络数据转换为GeoDataFrames
@@ -123,6 +133,29 @@ def map_visualize(dis_matrix, facility, radius, ellipse=True):
     # 隐藏坐标轴
     ax.axis('off')
 
+    # 获取潜在的无人机仓库地址
+    depot_tags = {
+        # 'landuse': ['brownfield'],  # 'commercial', 'industrial', 'grass',
+        'amenity': ['parking']
+        # ['school', 'hospital']  # ['parking']  # ['school', 'hospital']  # ['parking', 'school', 'hospital'],
+    }
+    gdf = ox.features_from_place(place, depot_tags)
+    # gdf.info()
+    # gdf['area'] = gdf['geometry'].area
+    # gdf = gdf[gdf['area'] > 500]
+    # gdf['geometry'] = gdf['geometry'].apply(
+    #     lambda geom: geom.representative_point() if geom.type != 'Point' else geom)
+    gdf['geometry'] = gdf['geometry'].apply(lambda geom: geom.representative_point() if geom.type != 'Point' else geom)
+    points_depots = gdf[gdf['geometry'].type == 'Point']
+    depot_nearest_node = ox.distance.nearest_nodes(G, points_depots['geometry'].x, points_depots['geometry'].y)
+    depot_node_lons = [G.nodes[node]['x'] for node in depot_nearest_node]
+    depot_node_lats = [G.nodes[node]['y'] for node in depot_nearest_node]
+    depot_df_nearest_nodes = gpd.GeoDataFrame(geometry=[Point(x, y) for x, y in zip(depot_node_lons, depot_node_lats)],
+                                              crs='EPSG:4326')
+    depot_df_nearest_nodes = depot_df_nearest_nodes.to_crs(epsg=3857)
+    ax.scatter(depot_df_nearest_nodes.geometry.x, depot_df_nearest_nodes.geometry.y, c='green', s=10, marker='s',
+               zorder=4)
+
     # 获取POI信息
     tags = {
         'amenity': True,
@@ -131,6 +164,8 @@ def map_visualize(dis_matrix, facility, radius, ellipse=True):
     }
     pois = ox.features_from_place(place, tags)
     pois.info()
+    pois['geometry'] = pois['geometry'].apply(
+        lambda geom: geom.representative_point() if geom.type != 'Point' else geom)
     # 提取POI的坐标
     points_all = pois[pois['geometry'].type == 'Point']
 
@@ -160,7 +195,9 @@ def map_visualize(dis_matrix, facility, radius, ellipse=True):
     # 在转换后的坐标系上绘制nearest_node的位置
     ax.scatter(df_nearest_nodes.geometry.x, df_nearest_nodes.geometry.y, c='black', s=10, zorder=3)
 
-    facility_nodes = gpd.GeoDataFrame(geometry=[Point(x, y) for x, y in zip(np.array(node_lons)[facility], np.array(node_lats)[facility])], crs='EPSG:4326')
+    facility_nodes = gpd.GeoDataFrame(geometry=[Point(x, y) for x, y in zip(np.array(depot_node_lons)[facility],
+                                                                            np.array(depot_node_lats)[facility])],
+                                      crs='EPSG:4326')
     facility_nodes = facility_nodes.to_crs(epsg=3857)
     ax.scatter(facility_nodes.geometry.x, facility_nodes.geometry.y, c='red', marker='s', zorder=4)  # s=10, )
     # 画椭圆
@@ -168,19 +205,22 @@ def map_visualize(dis_matrix, facility, radius, ellipse=True):
         for i in range(len(facility)):
             for j in range(len(facility)):
                 if i < j:
-                    lon1 = (node_lons[facility[i]] + node_lons[facility[j]]) / 2
-                    lat1 = (node_lats[facility[i]] + node_lats[facility[j]]) / 2
+                    lon1 = (depot_node_lons[facility[i]] + depot_node_lons[facility[j]]) / 2
+                    lat1 = (depot_node_lats[facility[i]] + depot_node_lats[facility[j]]) / 2
                     # lon1 = min(node_lons[facility[i]], node_lons[facility[j]])
                     # lat1 = min(node_lats[facility[i]], node_lats[facility[j]])
-                    radius_m = convert_distance_to_web_mercator(lon1, lat1, (radius*100 + 2500))
-                    foci_distance = convert_distance_to_web_mercator(lon1, lat1, dis_matrix[facility[i], facility[j]]*100)
-                    center_x, center_y, major_axis, minor_axis, angle = get_ellipse_config((facility_nodes.geometry.iloc[i].x, facility_nodes.geometry.iloc[i].y),
-                                                                                           (facility_nodes.geometry.iloc[j].x, facility_nodes.geometry.iloc[j].y), radius_m,
-                                                                                           foci_distance)
+                    radius_m = convert_distance_to_web_mercator(lon1, lat1, (radius * 100 + 2000))
+                    foci_distance = convert_distance_to_web_mercator(lon1, lat1,
+                                                                     dis_matrix[facility[i], facility[j]] * 100)
+                    center_x, center_y, major_axis, minor_axis, angle = get_ellipse_config(
+                        (facility_nodes.geometry.iloc[i].x, facility_nodes.geometry.iloc[i].y),
+                        (facility_nodes.geometry.iloc[j].x, facility_nodes.geometry.iloc[j].y), radius_m,
+                        foci_distance)
                     if minor_axis > 0:
-                        ellipse_patch = plt.matplotlib.patches.Ellipse((center_x, center_y), 2 * major_axis, 2 * minor_axis,
-                                                                 angle=angle, edgecolor='blue', facecolor='none',
-                                                                 zorder=5)
+                        ellipse_patch = plt.matplotlib.patches.Ellipse((center_x, center_y), 2 * major_axis,
+                                                                       2 * minor_axis,
+                                                                       angle=angle, edgecolor='blue', facecolor='none',
+                                                                       zorder=5)
                         ax.add_patch(ellipse_patch)
                         # ax.scatter([points[i, 0], points[j, 0]], [points[i, 1], points[j, 1]], color='red', marker='s')
         # 展示图表
@@ -189,16 +229,17 @@ def map_visualize(dis_matrix, facility, radius, ellipse=True):
         fig.savefig(f'longhua_ellipse.png', dpi=600)
     else:  # 画圆
         for i in range(len(facility)):
-            lon1 = node_lons[facility[i]]
-            lat1 = node_lats[facility[i]]
-            radius_m = convert_distance_to_web_mercator(lon1, lat1, (radius * 100+3300))  # 2-center 1000  center 600
-            circle_patch = plt.matplotlib.patches.Circle((facility_nodes.geometry.iloc[i].x, facility_nodes.geometry.iloc[i].y), radius_m, color='blue', fill=False, zorder=5)
+            lon1 = depot_node_lons[facility[i]]
+            lat1 = depot_node_lats[facility[i]]
+            radius_m = convert_distance_to_web_mercator(lon1, lat1, (radius * 100 + 1000))  # 2-center 1000  center 600
+            circle_patch = plt.matplotlib.patches.Circle(
+                (facility_nodes.geometry.iloc[i].x, facility_nodes.geometry.iloc[i].y), radius_m, color='blue',
+                fill=False, zorder=5)
             ax.add_patch(circle_patch)
         # 展示图表
         plt.show()
         # 保存图表
         fig.savefig(f'longhua_circle.png', dpi=600)
-
 
 
 if __name__ == '__main__':
@@ -207,10 +248,10 @@ if __name__ == '__main__':
     # 获取地图数据
     city = ox.geocode_to_gdf(place)
     # 转换为平方米，以下使用EPSG:3395(WGS 84 / World Mercator)作为投影参考系进行面积计算
-    total_area_sq_meters = city.to_crs('EPSG:3395').geometry.area.sum()/1e6
+    total_area_sq_meters = city.to_crs('EPSG:3395').geometry.area.sum() / 1e6
     print("总面积：", total_area_sq_meters)
     north, south, east, west = city["bbox_north"].iloc[0], city["bbox_south"].iloc[0], \
-                               city["bbox_east"].iloc[0], city["bbox_west"].iloc[0]
+        city["bbox_east"].iloc[0], city["bbox_west"].iloc[0]
     G = ox.graph_from_bbox(north, south, east, west, network_type="drive")
 
     # 将道路网络数据转换为GeoDataFrames
@@ -242,6 +283,28 @@ if __name__ == '__main__':
     # 隐藏坐标轴
     ax.axis('off')
 
+    # 获取潜在的无人机仓库地址
+    depot_tags = {
+        # 'landuse': ['brownfield'],  # 'commercial', 'industrial', 'grass',
+        'amenity': ['parking']  # ['school', 'hospital']  # ['parking', 'school', 'hospital'],
+    }
+    gdf = ox.features_from_place(place, depot_tags)
+    # gdf.info()
+    # gdf['area'] = gdf['geometry'].area
+    # gdf = gdf[gdf['area'] > 500]
+    # gdf['geometry'] = gdf['geometry'].apply(
+    #     lambda geom: geom.representative_point() if geom.type != 'Point' else geom)
+    gdf['geometry'] = gdf['geometry'].apply(lambda geom: geom.representative_point() if geom.type != 'Point' else geom)
+    points_depots = gdf[gdf['geometry'].type == 'Point']
+    depot_nearest_node = ox.distance.nearest_nodes(G, points_depots['geometry'].x, points_depots['geometry'].y)
+    depot_node_lons = [G.nodes[node]['x'] for node in depot_nearest_node]
+    depot_node_lats = [G.nodes[node]['y'] for node in depot_nearest_node]
+    depot_df_nearest_nodes = gpd.GeoDataFrame(geometry=[Point(x, y) for x, y in zip(depot_node_lons, depot_node_lats)],
+                                              crs='EPSG:4326')
+    depot_df_nearest_nodes = depot_df_nearest_nodes.to_crs(epsg=3857)
+    ax.scatter(depot_df_nearest_nodes.geometry.x, depot_df_nearest_nodes.geometry.y, c='green', s=10, marker='s',
+               zorder=4)
+
     # 获取POI信息
     tags = {
         'amenity': True,
@@ -250,10 +313,12 @@ if __name__ == '__main__':
     }
     pois = ox.features_from_place(place, tags)
     pois.info()
+    pois['geometry'] = pois['geometry'].apply(
+        lambda geom: geom.representative_point() if geom.type != 'Point' else geom)
     # 提取POI的坐标
     points_all = pois[pois['geometry'].type == 'Point']
 
-    n_sample_num = len(points_all) # 100  # 例如，随机取10个点
+    n_sample_num = len(points_all)  # 100  # 例如，随机取10个点
     # 如果points中的点少于你想抽取的数量，则抽取全部点
     if len(points_all) < n_sample_num:
         points = points_all
@@ -287,11 +352,12 @@ if __name__ == '__main__':
 
     path = f'longhua.npy'
 
+    # nearest_node = nearest_node + depot_df_nearest_nodes  # 合并需求点和depot
     # 计算最近道路节点之间的地图距离
-    map_distances = compute_optimized_map_distances(G, nearest_node)
-    np.save(f"map_{n_sample_num}_" + path, map_distances)
+    # map_distances = compute_optimized_map_distances(G, nearest_node, depot_df_nearest_nodes)
+    # np.save(f"map_{n_sample_num}_" + path, map_distances)
     # 计算最近道路节点之间的直线距离
-    euclidean_distances = compute_optimized_euclidean_distances(node_lats, node_lons)
+    euclidean_distances = compute_optimized_euclidean_distances(node_lats, node_lons, depot_node_lats, depot_node_lons)
     np.save(f"euclidean_{n_sample_num}_" + path, euclidean_distances)
 
     cdf = 100

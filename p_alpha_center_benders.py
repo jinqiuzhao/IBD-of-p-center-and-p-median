@@ -223,12 +223,13 @@ def add_benders_cut(MP, y_val, lb, ub, relax_ub=np.inf, cb=False, cbcut=False, i
         w_1 = MP_int.getVarByName(f"w")
 
     constr_num = 0
-    y_dis = np.take_along_axis(Dis_m, Sort_dis_index, axis=1)
+    y_dis = np.take_along_axis(Dis_m.T, Sort_dis_index, axis=1)
     y_sort = y_val[Sort_dis_index]
     y_cumsum = np.cumsum(y_sort, axis=1)
     k_js = np.argmax(y_cumsum >= 1, axis=1)
     # vir_fac = set(Sort_dis_index[np.arange(len(k_js)), k_js])
-    int_obj_j = Dis_m[np.arange(Dis_m.shape[0]), Sort_dis_index[np.arange(Sort_dis_index.shape[0]), k_js]]
+    # int_obj_j = Dis_m[np.arange(Dis_m.shape[0]), Sort_dis_index[np.arange(Sort_dis_index.shape[0]), k_js]]
+    int_obj_j = y_dis[np.arange(Dis_m.shape[1]), k_js]
     int_obj = np.max(int_obj_j)
     if int_obj <= np.ceil(lb) and int_sol:
         return int_obj, int_obj, constr_num
@@ -995,12 +996,13 @@ if __name__ == "__main__":
 
         """
     data_type = 6  # 2
-    data_sets = ['euclidean_345_longhua']   # range(1, 41)  # ['rat99'] # range(31, 41)  # ["st70"] # range(1, 41)
+    data_sets = ['euclidean_764_longhua']   # range(1, 41)  # ['rat99'] # range(31, 41)  # ["st70"] # range(1, 41)
     # data_sets =["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461"]
     # ["rat575", "dsj1000", "pcb1173", "u1432", "u1817", "pcb3038", "fnl4461", "rl5934", "pla7397", "rl11849", "usa13509", "brd14051", "xray14012_1", "d18512", "pla33810"]
     # data_sets = [10, 20, 30, 40, 50]
     # data_sets = ["Manhattan", "chengdu", "Portland", "beijing"]
-    fac_number = [3] # [11] # [11, 12, 13, 14, 15]  # [5]  # [3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 30]  # [5, 10, 100, 200, 300, 400, 500]
+    # fac_number = [3] # [11] # [11, 12, 13, 14, 15]  # [5]  # [3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 18, 20, 30]  # [5, 10, 100, 200, 300, 400, 500]
+    fac_number = [8]  # [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 30]
     d_num = [] # [1, 2, 3]  # 柔性测试破坏介个点
     for i in d_num:
         df[f"d_num_{i}"] = None
@@ -1017,7 +1019,7 @@ if __name__ == "__main__":
             mean = np.mean(Dis_m)
             Cus_n = instance.customer_num
             Fac_n = instance.facility_num
-            Sort_dis_index = np.argsort(Dis_m, axis=1)
+            Sort_dis_index = np.argsort(Dis_m, axis=0).T
             Sort_dis = np.sort(np.unique(Dis_m.flatten()))
             Cut_index = np.zeros((Cus_n, len(Sort_dis)), dtype=int)  # len(Sort_dis))
             # Sqs_index = cal_sqs_info(Dis_m, Sort_dis_index)
@@ -1032,7 +1034,7 @@ if __name__ == "__main__":
             # IBD algorithm
             # UB, LB, opt_time, inter, LB_0, facility = Benders_solve()
 
-            max_min_dis = np.max(np.min(Dis_m[:, facility], axis=1))
+            max_min_dis = np.max(np.min(Dis_m[facility, :], axis=0))
 
             result.append(UB)
             iter_num.append(inter)
